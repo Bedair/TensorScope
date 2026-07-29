@@ -2,31 +2,38 @@
 #include <cstdint>
 #include <cstdio>
 
-#include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
+#include "tensorflow/lite/micro/recording_micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 
 #include "tensorflow/lite/micro/examples/hello_world/models/hello_world_float_model_data.h"
 
 namespace {
 
-constexpr std::size_t kTensorArenaSize = 64 * 1024;
+constexpr std::size_t kTensorArenaSize = 68 * 1024;
+
 alignas(16) std::uint8_t tensor_arena[kTensorArenaSize];
 
 const char* TensorTypeName(TfLiteType type) {
   switch (type) {
     case kTfLiteFloat32:
       return "float32";
+
     case kTfLiteInt8:
       return "int8";
+
     case kTfLiteUInt8:
       return "uint8";
+
     case kTfLiteInt16:
       return "int16";
+
     case kTfLiteInt32:
       return "int32";
+
     case kTfLiteNoType:
       return "no-type";
+
     default:
       return "other";
   }
@@ -49,17 +56,21 @@ int main() {
         "Error: model schema version %d does not match runtime version %d.\n",
         model->version(),
         TFLITE_SCHEMA_VERSION);
+
     return 2;
   }
 
   tflite::MicroMutableOpResolver<1> resolver;
 
   if (resolver.AddFullyConnected() != kTfLiteOk) {
-    std::fprintf(stderr, "Error: failed to register FullyConnected.\n");
+    std::fprintf(
+        stderr,
+        "Error: failed to register FullyConnected operator.\n");
+
     return 3;
   }
 
-  tflite::MicroInterpreter interpreter(
+  tflite::RecordingMicroInterpreter interpreter(
       model,
       resolver,
       tensor_arena,
@@ -74,7 +85,10 @@ int main() {
   TfLiteTensor* output = interpreter.output(0);
 
   if (input == nullptr || output == nullptr) {
-    std::fprintf(stderr, "Error: input or output tensor unavailable.\n");
+    std::fprintf(
+        stderr,
+        "Error: input or output tensor is unavailable.\n");
+
     return 5;
   }
 
@@ -93,10 +107,12 @@ int main() {
     std::fprintf(
         stderr,
         "Error: float model exposed unexpected tensor types.\n");
+
     return 6;
   }
 
   constexpr float kInputValue = 0.0f;
+
   input->data.f[0] = kInputValue;
 
   if (interpreter.Invoke() != kTfLiteOk) {
@@ -104,6 +120,7 @@ int main() {
     return 7;
   }
 
+  std::printf("\n=== Inference result ===\n");
   std::printf("Model loaded successfully.\n");
   std::printf("Schema version: %d\n", model->version());
   std::printf("Input value: %.6f\n", kInputValue);
@@ -112,6 +129,10 @@ int main() {
   std::printf(
       "Arena used: %zu bytes\n",
       interpreter.arena_used_bytes());
+
+  std::printf("\n=== TFLM allocation breakdown ===\n");
+
+  interpreter.GetMicroAllocator().PrintAllocations();
 
   return 0;
 }
