@@ -137,3 +137,26 @@ def test_model_contains_constant_buffers() -> None:
         tensor.constant_data_size > 0
         for tensor in constant_tensors
     )
+
+
+def test_micro_speech_legacy_operator_codes() -> None:
+    loaded_model = load_tflite_model(
+        CORPUS_ROOT / "micro_speech_quantized.tflite"
+    )
+
+    graph_model = convert_tflite_model(
+        loaded_model
+    )
+
+    operator_names = {
+        operator.name
+        for subgraph in graph_model.subgraphs
+        for operator in subgraph.operators
+    }
+
+    assert operator_names == {
+        "DEPTHWISE_CONV_2D",
+        "FULLY_CONNECTED",
+        "RESHAPE",
+        "SOFTMAX",
+    }

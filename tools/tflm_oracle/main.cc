@@ -1,73 +1,203 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
+#include <iterator>
+#include <vector>
 
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/micro/recording_micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 
-#include "tensorflow/lite/micro/examples/hello_world/models/hello_world_float_model_data.h"
-
 namespace {
 
-constexpr std::size_t kTensorArenaSize = 68 * 1024;
+constexpr std::size_t kTensorArenaSize = 2 * 1024 * 1024;
+constexpr std::size_t kArenaAlignment = 16;
+constexpr int kResolverCapacity = 8;
 
-alignas(16) std::uint8_t tensor_arena[kTensorArenaSize];
+alignas(kArenaAlignment)
+std::uint8_t tensor_arena[kTensorArenaSize];
 
-const char* TensorTypeName(TfLiteType type) {
-  switch (type) {
-    case kTfLiteFloat32:
-      return "float32";
+void PrintUsage(const char* program_name) {
+  std::fprintf(
+      stderr,
+      "Usage: %s MODEL.tflite\n",
+      program_name);
+}
 
-    case kTfLiteInt8:
-      return "int8";
-
-    case kTfLiteUInt8:
-      return "uint8";
-
-    case kTfLiteInt16:
-      return "int16";
-
-    case kTfLiteInt32:
-      return "int32";
-
-    case kTfLiteNoType:
-      return "no-type";
-
-    default:
-      return "other";
+bool ReadBinaryFile(
+    const char* path,
+    std::vector<std::uint8_t>* output) {
+  if (output == nullptr) {
+    return false;
   }
+
+  std::ifstream input(
+      path,
+      std::ios::binary);
+
+  if (!input.is_open()) {
+    std::fprintf(
+        stderr,
+        "Error: failed to open model file: %s\n",
+        path);
+
+    return false;
+  }
+
+  input.unsetf(std::ios::skipws);
+
+  output->assign(
+      std::istream_iterator<std::uint8_t>(input),
+      std::istream_iterator<std::uint8_t>());
+
+  if (input.bad()) {
+    std::fprintf(
+        stderr,
+        "Error: failed while reading model file: %s\n",
+        path);
+
+    return false;
+  }
+
+  if (output->empty()) {
+    std::fprintf(
+        stderr,
+        "Error: model file is empty: %s\n",
+        path);
+
+    return false;
+  }
+
+  return true;
+}
+
+void ResetTensorArena() {
+  for (std::size_t index = 0;
+       index < kTensorArenaSize;
+       ++index) {
+    tensor_arena[index] = 0;
+  }
+}
+
+TfLiteStatus RegisterCorpusOperators(
+    tflite::MicroMutableOpResolver<
+        kResolverCapacity>* resolver) {
+  if (resolver == nullptr) {
+    return kTfLiteError;
+  }
+
+  if (resolver->AddAdd() != kTfLiteOk) {
+    std::fprintf(
+        stderr,
+        "Error: failed to register ADD.\n");
+
+    return kTfLiteError;
+  }
+
+  if (resolver->AddConv2D() != kTfLiteOk) {
+    std::fprintf(
+        stderr,
+        "Error: failed to register CONV_2D.\n");
+
+    return kTfLiteError;
+  }
+
+  if (resolver->AddDepthwiseConv2D() != kTfLiteOk) {
+    std::fprintf(
+        stderr,
+        "Error: failed to register DEPTHWISE_CONV_2D.\n");
+
+    return kTfLiteError;
+  }
+
+  if (resolver->AddFullyConnected() != kTfLiteOk) {
+    std::fprintf(
+        stderr,
+        "Error: failed to register FULLY_CONNECTED.\n");
+
+    return kTfLiteError;
+  }
+
+  if (resolver->AddReshape() != kTfLiteOk) {
+    std::fprintf(
+        stderr,
+        "Error: failed to register RESHAPE.\n");
+
+    return kTfLiteError;
+  }
+
+  if (resolver->AddSoftmax() != kTfLiteOk) {
+    std::fprintf(
+        stderr,
+        "Error: failed to register SOFTMAX.\n");
+
+    return kTfLiteError;
+  }
+
+  return kTfLiteOk;
 }
 
 }  // namespace
 
-int main() {
+int main(
+    int argc,
+    char** argv) {
+  if (argc != 2) {
+    PrintUsage(argv[0]);
+    return 1;
+  }
+
+  const char* model_path = argv[1];
+
+  std::vector<std::uint8_t> model_data;
+
+  if (!ReadBinaryFile(
+          model_path,
+          &model_data)) {
+    return 2;
+  }
+
+  if (model_data.size() < 8) {
+    std::fprintf(
+        stderr,
+        "Error: model file is too small: %s\n",
+        model_path);
+
+    return 3;
+  }
+
   const tflite::Model* model =
-      tflite::GetModel(g_hello_world_float_model_data);
+      tflite::GetModel(model_data.data());
 
   if (model == nullptr) {
-    std::fprintf(stderr, "Error: failed to load model.\n");
-    return 1;
+    std::fprintf(
+        stderr,
+        "Error: failed to parse model: %s\n",
+        model_path);
+
+    return 4;
   }
 
   if (model->version() != TFLITE_SCHEMA_VERSION) {
     std::fprintf(
         stderr,
-        "Error: model schema version %d does not match runtime version %d.\n",
+        "Error: model schema version %d does not match "
+        "runtime schema version %d.\n",
         model->version(),
         TFLITE_SCHEMA_VERSION);
 
-    return 2;
+    return 5;
   }
 
-  tflite::MicroMutableOpResolver<1> resolver;
+  ResetTensorArena();
 
-  if (resolver.AddFullyConnected() != kTfLiteOk) {
-    std::fprintf(
-        stderr,
-        "Error: failed to register FullyConnected operator.\n");
+  tflite::MicroMutableOpResolver<
+      kResolverCapacity> resolver;
 
-    return 3;
+  if (RegisterCorpusOperators(
+          &resolver) != kTfLiteOk) {
+    return 6;
   }
 
   tflite::RecordingMicroInterpreter interpreter(
@@ -77,62 +207,54 @@ int main() {
       kTensorArenaSize);
 
   if (interpreter.AllocateTensors() != kTfLiteOk) {
-    std::fprintf(stderr, "Error: tensor allocation failed.\n");
-    return 4;
-  }
-
-  TfLiteTensor* input = interpreter.input(0);
-  TfLiteTensor* output = interpreter.output(0);
-
-  if (input == nullptr || output == nullptr) {
     std::fprintf(
         stderr,
-        "Error: input or output tensor is unavailable.\n");
+        "Error: tensor allocation failed for model: %s\n",
+        model_path);
 
-    return 5;
-  }
-
-  std::printf(
-      "Input tensor type: %s (%d)\n",
-      TensorTypeName(input->type),
-      static_cast<int>(input->type));
-
-  std::printf(
-      "Output tensor type: %s (%d)\n",
-      TensorTypeName(output->type),
-      static_cast<int>(output->type));
-
-  if (input->type != kTfLiteFloat32 ||
-      output->type != kTfLiteFloat32) {
-    std::fprintf(
-        stderr,
-        "Error: float model exposed unexpected tensor types.\n");
-
-    return 6;
-  }
-
-  constexpr float kInputValue = 0.0f;
-
-  input->data.f[0] = kInputValue;
-
-  if (interpreter.Invoke() != kTfLiteOk) {
-    std::fprintf(stderr, "Error: inference failed.\n");
     return 7;
   }
 
-  std::printf("\n=== Inference result ===\n");
-  std::printf("Model loaded successfully.\n");
-  std::printf("Schema version: %d\n", model->version());
-  std::printf("Input value: %.6f\n", kInputValue);
-  std::printf("Output value: %.6f\n", output->data.f[0]);
-  std::printf("Arena capacity: %zu bytes\n", kTensorArenaSize);
+  const auto* subgraphs = model->subgraphs();
+  const auto* operator_codes = model->operator_codes();
+
+  const unsigned int subgraph_count =
+      subgraphs == nullptr
+          ? 0
+          : static_cast<unsigned int>(
+                subgraphs->size());
+
+  const unsigned int operator_code_count =
+      operator_codes == nullptr
+          ? 0
+          : static_cast<unsigned int>(
+                operator_codes->size());
+
+  std::printf("TENSOR_SCOPE_ORACLE_BEGIN\n");
+  std::printf("model_path=%s\n", model_path);
   std::printf(
-      "Arena used: %zu bytes\n",
+      "model_size=%zu\n",
+      model_data.size());
+  std::printf(
+      "schema_version=%d\n",
+      model->version());
+  std::printf(
+      "subgraph_count=%u\n",
+      subgraph_count);
+  std::printf(
+      "operator_code_count=%u\n",
+      operator_code_count);
+  std::printf(
+      "arena_capacity=%zu\n",
+      kTensorArenaSize);
+  std::printf(
+      "arena_used=%zu\n",
       interpreter.arena_used_bytes());
+  std::printf("TENSOR_SCOPE_ORACLE_END\n");
 
-  std::printf("\n=== TFLM allocation breakdown ===\n");
-
-  interpreter.GetMicroAllocator().PrintAllocations();
+  interpreter
+      .GetMicroAllocator()
+      .PrintAllocations();
 
   return 0;
 }
