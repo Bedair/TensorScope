@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "description": "TensorScope MVP model validation corpus.",
+  "model_count": 5,
+  "models": [
+    {
+      "name": "conv0.tflite",
+      "path": "tests/model_corpus/models/conv0.tflite",
+      "size_bytes": 2368,
+      "sha256": "e032679228ede57c8504e7db6b6a6322343c489b727036f9802fcb3d6c42f4b2",
+      "description": "Small convolution integration-test model from TFLM.",
+      "source": "third_party/tflite-micro/tensorflow/lite/micro/integration_tests/seanet/conv/conv0.tflite",
+      "category": "single-operator",
+      "quantization": "unknown",
+      "expected_operators": [
+        "CONV_2D"
+      ],
+      "expected_use": [
+        "Conv2D parser validation",
+        "activation tensor sizing",
+        "scratch-buffer analysis",
+        "memory-planner validation"
+      ]
+    },
+    {
+      "name": "hello_world_float.tflite",
+      "path": "tests/model_corpus/models/hello_world_float.tflite",
+      "size_bytes": 3164,
+      "sha256": "ee939863195ca37ce063b18e14fb82aa0d98db6596ba41095757f6b560da1070",
+      "description": "Floating-point Hello World sine approximation model.",
+      "source": "third_party/tflite-micro/tensorflow/lite/micro/examples/hello_world/models/hello_world_float.tflite",
+      "category": "baseline",
+      "quantization": "float32",
+      "expected_operators": [
+        "FULLY_CONNECTED"
+      ],
+      "expected_use": [
+        "model parsing",
+        "float tensor handling",
+        "tensor-size calculation",
+        "lifetime analysis",
+        "memory-planner validation"
+      ]
+    },
+    {
+      "name": "hello_world_int8.tflite",
+      "path": "tests/model_corpus/models/hello_world_int8.tflite",
+      "size_bytes": 2704,
+      "sha256": "505ee4fae7fa46ab67bea4c08b4969eb3eb8b9114c50595ec4a29d9a27993202",
+      "description": "Integer-quantized Hello World sine approximation model.",
+      "source": "third_party/tflite-micro/tensorflow/lite/micro/examples/hello_world/models/hello_world_int8.tflite",
+      "category": "baseline",
+      "quantization": "int8",
+      "expected_operators": [
+        "FULLY_CONNECTED"
+      ],
+      "expected_use": [
+        "quantization metadata parsing",
+        "int8 tensor handling",
+        "tensor-size calculation",
+        "memory-planner validation"
+      ]
+    },
+    {
+      "name": "micro_speech_quantized.tflite",
+      "path": "tests/model_corpus/models/micro_speech_quantized.tflite",
+      "size_bytes": 18800,
+      "sha256": "09e5e2a9dfb2d8ed78802bf18ce297bff54281a66ca18e0c23d69ca14f822a83",
+      "description": "Quantized keyword-spotting model from the TFLM micro_speech example.",
+      "source": "third_party/tflite-micro/tensorflow/lite/micro/examples/micro_speech/models/micro_speech_quantized.tflite",
+      "category": "representative-application",
+      "quantization": "int8",
+      "expected_operators": [],
+      "expected_use": [
+        "multi-operator graph parsing",
+        "realistic tensor lifetime analysis",
+        "memory-planner validation",
+        "operator coverage testing"
+      ]
+    },
+    {
+      "name": "simple_add_model.tflite",
+      "path": "tests/model_corpus/models/simple_add_model.tflite",
+      "size_bytes": 976,
+      "sha256": "ae54358831f8a6ce8d0baa5c19437d76ab530710d9d491acb5860d1e5b552e26",
+      "description": "Minimal addition model from the TFLM memory footprint example.",
+      "source": "third_party/tflite-micro/tensorflow/lite/micro/examples/memory_footprint/models/simple_add_model.tflite",
+      "category": "single-operator",
+      "quantization": "unknown",
+      "expected_operators": [
+        "ADD"
+      ],
+      "expected_use": [
+        "minimal parser validation",
+        "single-operator graph validation",
+        "tensor lifetime validation"
+      ]
+    }
+  ]
+}
