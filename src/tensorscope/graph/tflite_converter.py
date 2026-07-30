@@ -15,7 +15,9 @@ from tensorscope.graph.model import (
 from tensorscope.tflite.model_loader import LoadedModel
 
 
-def _decode_text(value: bytes | str | None) -> str:
+def _decode_text(
+    value: bytes | str | None,
+) -> str:
     if value is None:
         return ""
 
@@ -184,11 +186,51 @@ def _builtin_operator_name(
         if attribute_name.startswith("_"):
             continue
 
-        if isinstance(attribute_value, int):
-            if attribute_value == builtin_code:
-                return attribute_name
+        if (
+            isinstance(attribute_value, int)
+            and attribute_value == builtin_code
+        ):
+            return attribute_name
 
     return f"BUILTIN_{builtin_code}"
+
+
+def _effective_builtin_code(
+    operator_code: Any,
+) -> int:
+    """
+    Resolve the effective builtin opcode.
+
+    Older TFLite models store the real opcode in
+    DeprecatedBuiltinCode. In those models BuiltinCode may be absent
+    and the generated Python accessor returns its default value,
+    BuiltinOperator.ADD (zero).
+    """
+
+    builtin_code = int(
+        operator_code.BuiltinCode()
+    )
+
+    deprecated_method = getattr(
+        operator_code,
+        "DeprecatedBuiltinCode",
+        None,
+    )
+
+    if deprecated_method is None:
+        return builtin_code
+
+    deprecated_code = int(
+        deprecated_method()
+    )
+
+    if (
+        builtin_code == 0
+        and deprecated_code != 0
+    ):
+        return deprecated_code
+
+    return builtin_code
 
 
 def _operator_name(
@@ -221,8 +263,8 @@ def _operator_name(
         operator_code.CustomCode()
     )
 
-    builtin_code = int(
-        operator_code.BuiltinCode()
+    builtin_code = _effective_builtin_code(
+        operator_code
     )
 
     if custom_code:
