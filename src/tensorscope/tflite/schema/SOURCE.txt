@@ -1,0 +1,2 @@
+source=third_party/tflite-micro/tensorflow/lite/python/schema_py_generated.py
+sha256=00bc719440fb61c3504525c21a17ce2fe4027c04646bf475d18d45f55a662583
