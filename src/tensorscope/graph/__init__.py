@@ -1,5 +1,17 @@
 """TensorScope internal graph representation."""
 
+from tensorscope.graph.memory_planner import (
+    TFLM_ARENA_ALIGNMENT,
+    BufferAllocation,
+    BufferRequirement,
+    GraphMemoryPlan,
+    MemoryPlannerError,
+    SubgraphMemoryPlan,
+    align_size_up,
+    calculate_graph_memory_plan,
+    calculate_subgraph_memory_plan,
+    greedy_plan_requirements,
+)
 from tensorscope.graph.model import (
     BufferId,
     GraphModel,
@@ -34,16 +46,22 @@ from tensorscope.graph.tflite_converter import (
 )
 
 __all__ = [
+    "BufferAllocation",
     "BufferId",
+    "BufferRequirement",
     "GraphLifetimeAnalysis",
+    "GraphMemoryPlan",
     "GraphModel",
     "GraphModelError",
+    "MemoryPlannerError",
     "Operator",
     "OperatorId",
     "QuantizationParameters",
     "Subgraph",
     "SubgraphId",
     "SubgraphLifetimeAnalysis",
+    "SubgraphMemoryPlan",
+    "TFLM_ARENA_ALIGNMENT",
     "Tensor",
     "TensorDataType",
     "TensorId",
@@ -51,11 +69,15 @@ __all__ = [
     "TensorLifetimeError",
     "TensorSize",
     "TensorSizeError",
+    "align_size_up",
     "bits_per_element",
     "bits_to_bytes_rounded_up",
     "calculate_element_count",
     "calculate_graph_lifetimes",
+    "calculate_graph_memory_plan",
     "calculate_subgraph_lifetimes",
+    "calculate_subgraph_memory_plan",
     "calculate_tensor_size",
     "convert_tflite_model",
+    "greedy_plan_requirements",
 ]
