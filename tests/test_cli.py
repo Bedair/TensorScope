@@ -57,7 +57,7 @@ def test_package_module_help_executes_successfully() -> None:
     assert completed.returncode == EXIT_SUCCESS
     assert completed.stderr == ""
     assert "usage: tensorscope" in completed.stdout
-    assert "{analyze,validate}" in completed.stdout
+    assert "{analyze,validate,compare}" in completed.stdout
 
 
 def test_package_module_analyze_executes_successfully() -> None:
