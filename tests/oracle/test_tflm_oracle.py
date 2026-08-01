@@ -279,3 +279,9 @@ def test_oracle_matches_recorded_corpus_results(
     assert result.tflm_revision == "b89fb3e06e59d2f6af67e758242243da599bfedf"
     assert "arena_head_bytes=" in result.raw_output
     assert "[RecordingMicroAllocator] Arena allocation total" in result.raw_output
+
+
+def test_oracle_executable_environment_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TENSORSCOPE_TFLM_ORACLE", str(ORACLE_EXECUTABLE))
+    result = run_tflm_oracle(CORPUS_ROOT / "hello_world_float.tflite")
+    assert result.arena_head == 128

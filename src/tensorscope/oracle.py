@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -408,7 +409,7 @@ def parse_tflm_oracle_output(
 def run_tflm_oracle(
     model_path: str | Path,
     *,
-    executable: str | Path = DEFAULT_ORACLE_EXECUTABLE,
+    executable: str | Path | None = None,
 ) -> TFLMOracleResult:
     """Run the compiled TFLM oracle for one model."""
 
@@ -418,6 +419,8 @@ def run_tflm_oracle(
 
     oracle = Path(
         executable
+        if executable is not None
+        else os.environ.get("TENSORSCOPE_TFLM_ORACLE", DEFAULT_ORACLE_EXECUTABLE)
     ).expanduser().resolve()
 
     if not model.is_file():

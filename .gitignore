@@ -7,3 +7,8 @@ env/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# Python package build outputs
+/build/
+/dist/
+*.egg-info/
