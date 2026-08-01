@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tensorscope"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Confidence-aware memory analysis for TensorFlow Lite Micro models"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -35,3 +35,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 tensorscope = ["py.typed"]
+
+[tool.setuptools.dynamic]
+version = {attr = "tensorscope.__version__"}

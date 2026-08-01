@@ -21,7 +21,7 @@ observed used = observed non-persistent/head + observed persistent/tail
 remaining = oracle arena capacity - observed used
 ```
 
-Temporary-only allocation usage is reported as unavailable. The public API
+Temporary-only allocation usage is reported as unavailable. The pinned API
 combines current temporary usage with non-persistent usage and does not expose a
 reliable separate value after allocation. Structured allocation categories are
 also deferred: the pinned recording categories explicitly omit scratch tracking
