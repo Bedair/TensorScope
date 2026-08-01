@@ -7,6 +7,7 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Literal
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -22,6 +23,69 @@ DEFAULT_ORACLE_EXECUTABLE = (
 
 class TFLMOracleError(RuntimeError):
     """Raised when the host-side TFLM oracle fails."""
+
+
+@dataclass(frozen=True)
+class OracleArenaObservation:
+    """Memory observed during one pinned host-side TFLM allocator run."""
+
+    capacity_bytes: int | None
+    used_bytes: int | None
+    head_bytes: int | None
+    tail_bytes: int | None
+    temporary_bytes: int | None
+    remaining_bytes: int | None
+    alignment_bytes: int | None
+    tflm_revision: str | None
+    source: Literal["tflm_oracle"] = "tflm_oracle"
+    observation_scope: Literal["host_allocator_run"] = "host_allocator_run"
+
+    def __post_init__(self) -> None:
+        values = {
+            "capacity_bytes": self.capacity_bytes,
+            "used_bytes": self.used_bytes,
+            "head_bytes": self.head_bytes,
+            "tail_bytes": self.tail_bytes,
+            "temporary_bytes": self.temporary_bytes,
+            "remaining_bytes": self.remaining_bytes,
+            "alignment_bytes": self.alignment_bytes,
+        }
+        for name, value in values.items():
+            if value is not None and value < 0:
+                raise TFLMOracleError(f"{name} must be non-negative: {value}")
+        if self.capacity_bytes is not None and self.used_bytes is not None:
+            if self.used_bytes > self.capacity_bytes:
+                raise TFLMOracleError("used_bytes must not exceed capacity_bytes")
+        if None not in (self.capacity_bytes, self.used_bytes, self.remaining_bytes):
+            assert self.capacity_bytes is not None
+            assert self.used_bytes is not None
+            expected = self.capacity_bytes - self.used_bytes
+            if self.remaining_bytes != expected:
+                raise TFLMOracleError(
+                    f"remaining_bytes is inconsistent: expected {expected}, got {self.remaining_bytes}"
+                )
+        if None not in (self.used_bytes, self.head_bytes, self.tail_bytes):
+            assert self.head_bytes is not None
+            assert self.tail_bytes is not None
+            expected_used = self.head_bytes + self.tail_bytes
+            if self.used_bytes != expected_used:
+                raise TFLMOracleError(
+                    f"used_bytes does not equal head_bytes plus tail_bytes: {self.used_bytes} != {expected_used}"
+                )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source": self.source,
+            "observation_scope": self.observation_scope,
+            "tflm_revision": self.tflm_revision,
+            "capacity_bytes": self.capacity_bytes,
+            "used_bytes": self.used_bytes,
+            "head_bytes": self.head_bytes,
+            "tail_bytes": self.tail_bytes,
+            "temporary_bytes": self.temporary_bytes,
+            "remaining_bytes": self.remaining_bytes,
+            "alignment_bytes": self.alignment_bytes,
+        }
 
 
 @dataclass(frozen=True)
@@ -69,6 +133,10 @@ class TFLMOracleResult:
     arena_tail: int
     categories: tuple[AllocationCategory, ...]
     raw_output: str
+    arena_remaining: int | None = None
+    arena_temporary: int | None = None
+    allocator_alignment: int | None = None
+    tflm_revision: str | None = None
 
     def __post_init__(self) -> None:
         numeric_fields = {
@@ -95,6 +163,21 @@ class TFLMOracleResult:
                 f"{self.arena_head} + {self.arena_tail}"
             )
 
+        self.observation
+
+    @property
+    def observation(self) -> OracleArenaObservation:
+        return OracleArenaObservation(
+            capacity_bytes=self.arena_capacity,
+            used_bytes=self.arena_used,
+            head_bytes=self.arena_head,
+            tail_bytes=self.arena_tail,
+            temporary_bytes=self.arena_temporary,
+            remaining_bytes=self.arena_remaining,
+            alignment_bytes=self.allocator_alignment,
+            tflm_revision=self.tflm_revision,
+        )
+
     def category(
         self,
         name: str,
@@ -118,6 +201,10 @@ class TFLMOracleResult:
             "arena_used": self.arena_used,
             "arena_head": self.arena_head,
             "arena_tail": self.arena_tail,
+            "arena_remaining": self.arena_remaining,
+            "arena_temporary": self.arena_temporary,
+            "allocator_alignment": self.allocator_alignment,
+            "tflm_revision": self.tflm_revision,
             "categories": [
                 asdict(category)
                 for category in self.categories
@@ -125,18 +212,17 @@ class TFLMOracleResult:
         }
 
 
-_SUMMARY_PATTERN = re.compile(
-    r"TENSOR_SCOPE_ORACLE_BEGIN\s*"
-    r"model_path=(?P<model_path>[^\r\n]+)\s*"
-    r"model_size=(?P<model_size>\d+)\s*"
-    r"schema_version=(?P<schema_version>\d+)\s*"
-    r"subgraph_count=(?P<subgraph_count>\d+)\s*"
-    r"operator_code_count=(?P<operator_code_count>\d+)\s*"
-    r"arena_capacity=(?P<arena_capacity>\d+)\s*"
-    r"arena_used=(?P<arena_used>\d+)\s*"
-    r"TENSOR_SCOPE_ORACLE_END",
-    re.MULTILINE,
+_STRUCTURED_BEGIN = "TENSOR_SCOPE_ORACLE_BEGIN"
+_STRUCTURED_END = "TENSOR_SCOPE_ORACLE_END"
+_REQUIRED_STRUCTURED_FIELDS = (
+    "model_path", "model_size", "schema_version", "subgraph_count",
+    "operator_code_count", "arena_capacity", "arena_used",
 )
+_NUMERIC_STRUCTURED_FIELDS = {
+    "model_size", "schema_version", "subgraph_count", "operator_code_count",
+    "arena_capacity", "arena_used", "arena_head_bytes", "arena_tail_bytes",
+    "arena_temporary_bytes", "arena_remaining_bytes", "allocator_alignment_bytes",
+}
 
 _TOTAL_PATTERN = re.compile(
     r"\[RecordingMicroAllocator\]\s+"
@@ -185,38 +271,65 @@ def _required_match(
     return match
 
 
+def _parse_structured_block(output: str) -> dict[str, str]:
+    begin_count = output.count(_STRUCTURED_BEGIN)
+    end_count = output.count(_STRUCTURED_END)
+    if begin_count != 1 or end_count != 1:
+        raise TFLMOracleError(
+            "Oracle output must contain exactly one structured oracle block"
+        )
+    body = output.split(_STRUCTURED_BEGIN, 1)[1].split(_STRUCTURED_END, 1)[0]
+    fields: dict[str, str] = {}
+    for line in body.splitlines():
+        rendered = line.strip()
+        if not rendered:
+            continue
+        if "=" not in rendered:
+            raise TFLMOracleError(f"Malformed structured oracle line: {rendered!r}")
+        key, value = rendered.split("=", 1)
+        if key in fields:
+            raise TFLMOracleError(f"Duplicate structured oracle field: {key}")
+        fields[key] = value
+    for key in _REQUIRED_STRUCTURED_FIELDS:
+        if key not in fields:
+            raise TFLMOracleError(f"Missing required structured oracle field: {key}")
+    for key in _NUMERIC_STRUCTURED_FIELDS.intersection(fields):
+        value = fields[key]
+        if key == "arena_temporary_bytes" and value == "unavailable":
+            continue
+        if not value.isdecimal():
+            raise TFLMOracleError(
+                f"Malformed integer for structured oracle field {key}: {value!r}"
+            )
+    return fields
+
+
 def parse_tflm_oracle_output(
     output: str,
 ) -> TFLMOracleResult:
     """Parse output produced by the C++ host oracle."""
 
-    summary = _required_match(
-        _SUMMARY_PATTERN,
-        output,
-        "oracle summary",
-    )
+    summary = _parse_structured_block(output)
 
+    structured_head = summary.get("arena_head_bytes")
+    structured_tail = summary.get("arena_tail_bytes")
+    legacy_output = structured_head is None or structured_tail is None
     total = _required_match(
-        _TOTAL_PATTERN,
-        output,
-        "arena total",
+        _TOTAL_PATTERN, output, "arena total"
+    ) if legacy_output else None
+    head = None if structured_head is not None else _required_match(
+        _HEAD_PATTERN, output, "arena head"
     )
-
-    head = _required_match(
-        _HEAD_PATTERN,
-        output,
-        "arena head",
-    )
-
-    tail = _required_match(
-        _TAIL_PATTERN,
-        output,
-        "arena tail",
+    tail = None if structured_tail is not None else _required_match(
+        _TAIL_PATTERN, output, "arena tail"
     )
 
     categories: list[AllocationCategory] = []
 
-    for match in _CATEGORY_PATTERN.finditer(output):
+    # Categories are parsed only for compatibility with legacy oracle output.
+    # Current structured output deliberately does not infer categories from
+    # human-readable diagnostics.
+    for match in _CATEGORY_PATTERN.finditer(output) if legacy_output else ():
         count_text = match.group("count")
 
         categories.append(
@@ -240,14 +353,12 @@ def parse_tflm_oracle_output(
         )
 
     arena_used = int(
-        summary.group("arena_used")
+        summary["arena_used"]
     )
 
-    recorded_total = int(
-        total.group("value")
-    )
+    recorded_total = int(total.group("value")) if total is not None else arena_used
 
-    if arena_used != recorded_total:
+    if total is not None and arena_used != recorded_total:
         raise TFLMOracleError(
             "Interpreter arena usage differs from the "
             "RecordingMicroAllocator total: "
@@ -256,32 +367,41 @@ def parse_tflm_oracle_output(
 
     return TFLMOracleResult(
         model_path=Path(
-            summary.group("model_path")
+            summary["model_path"]
         ),
         model_size=int(
-            summary.group("model_size")
+            summary["model_size"]
         ),
         schema_version=int(
-            summary.group("schema_version")
+            summary["schema_version"]
         ),
         subgraph_count=int(
-            summary.group("subgraph_count")
+            summary["subgraph_count"]
         ),
         operator_code_count=int(
-            summary.group("operator_code_count")
+            summary["operator_code_count"]
         ),
         arena_capacity=int(
-            summary.group("arena_capacity")
+            summary["arena_capacity"]
         ),
         arena_used=arena_used,
-        arena_head=int(
-            head.group("value")
-        ),
-        arena_tail=int(
-            tail.group("value")
-        ),
+        arena_head=int(structured_head if structured_head is not None else head.group("value")),
+        arena_tail=int(structured_tail if structured_tail is not None else tail.group("value")),
         categories=tuple(categories),
         raw_output=output,
+        arena_remaining=(
+            int(summary["arena_remaining_bytes"])
+            if "arena_remaining_bytes" in summary else None
+        ),
+        arena_temporary=(
+            None if summary.get("arena_temporary_bytes") in (None, "unavailable")
+            else int(summary["arena_temporary_bytes"])
+        ),
+        allocator_alignment=(
+            int(summary["allocator_alignment_bytes"])
+            if "allocator_alignment_bytes" in summary else None
+        ),
+        tflm_revision=summary.get("tflm_revision"),
     )
 
 

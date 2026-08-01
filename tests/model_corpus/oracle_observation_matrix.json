@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "observation_scope": "host_allocator_run",
+  "source": "tflm_oracle",
+  "tflm_revision": "b89fb3e06e59d2f6af67e758242243da599bfedf",
+  "allocator_capacity_bytes": 2097152,
+  "models": [
+    {"filename":"conv0.tflite","observed_head_bytes":10432,"observed_tail_bytes":1008,"observed_used_bytes":11440,"capacity_bytes":2097152,"remaining_bytes":2085712,"tflm_revision":"b89fb3e06e59d2f6af67e758242243da599bfedf"},
+    {"filename":"hello_world_float.tflite","observed_head_bytes":128,"observed_tail_bytes":1296,"observed_used_bytes":1424,"capacity_bytes":2097152,"remaining_bytes":2095728,"tflm_revision":"b89fb3e06e59d2f6af67e758242243da599bfedf"},
+    {"filename":"hello_world_int8.tflite","observed_head_bytes":32,"observed_tail_bytes":1360,"observed_used_bytes":1392,"capacity_bytes":2097152,"remaining_bytes":2095760,"tflm_revision":"b89fb3e06e59d2f6af67e758242243da599bfedf"},
+    {"filename":"micro_speech_quantized.tflite","observed_head_bytes":5968,"observed_tail_bytes":1552,"observed_used_bytes":7520,"capacity_bytes":2097152,"remaining_bytes":2089632,"tflm_revision":"b89fb3e06e59d2f6af67e758242243da599bfedf"},
+    {"filename":"operator_chain_float.tflite","observed_head_bytes":128,"observed_tail_bytes":2704,"observed_used_bytes":2832,"capacity_bytes":2097152,"remaining_bytes":2094320,"tflm_revision":"b89fb3e06e59d2f6af67e758242243da599bfedf"},
+    {"filename":"quantize_dequantize_int8.tflite","observed_head_bytes":48,"observed_tail_bytes":880,"observed_used_bytes":928,"capacity_bytes":2097152,"remaining_bytes":2096224,"tflm_revision":"b89fb3e06e59d2f6af67e758242243da599bfedf"},
+    {"filename":"simple_add_model.tflite","observed_head_bytes":49152,"observed_tail_bytes":992,"observed_used_bytes":50144,"capacity_bytes":2097152,"remaining_bytes":2047008,"tflm_revision":"b89fb3e06e59d2f6af67e758242243da599bfedf"}
+  ]
+}
