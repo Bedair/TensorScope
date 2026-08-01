@@ -7,6 +7,22 @@ from pathlib import Path
 from typing import Sequence
 
 from tensorscope import __version__
+from tensorscope.analysis_views import build_analysis_views, build_model_diagnostics
+from tensorscope.automation import (
+    BATCH_SCHEMA_VERSION,
+    aggregate_csv,
+    analysis_sarif,
+    atomic_write_json,
+    atomic_write_text,
+    check_baseline,
+    create_baseline_manifest,
+    deployment_artifacts,
+    evaluate_policy,
+    load_policy,
+    parse_gnu_map,
+    resolve_models,
+    sarif_document,
+)
 from tensorscope.comparison import ComparisonInput, ModelComparison, compare_models, render_comparison_text
 from tensorscope.comparison_report import render_comparison_html
 from tensorscope.explain import MemoryExplanation, explain_primary_subgraph_memory
@@ -50,6 +66,10 @@ EXIT_VALIDATION_MISMATCH = 4
 EXIT_REPORT_ERROR = 5
 EXIT_BUDGET_EXCEEDED = 6
 EXIT_COMPARISON_REGRESSION = 7
+EXIT_POLICY_FAILURE = 8
+EXIT_BASELINE_DRIFT = 9
+EXIT_BATCH_FAILURE = 10
+EXIT_FIRMWARE_CHECK_FAILURE = 11
 
 
 class ValidationUnavailableError(RuntimeError):
@@ -110,6 +130,8 @@ def _calculate_analysis(
         "arena_tail": tail.to_dict(),
         "arena_total": total.to_dict(),
         "analysis": explanation.to_dict(),
+        "analysis_views": build_analysis_views(graph, explanation),
+        "model_diagnostics": build_model_diagnostics(graph),
     }
     return result, explanation, graph
 
@@ -243,6 +265,19 @@ def _render_text(
         lines.extend(["", _render_budget_text(budget)])
     if guidance is not None:
         lines.extend(["", render_memory_guidance(guidance, details=details)])
+    views = result.get("analysis_views")
+    if isinstance(views, dict) and explanation is not None:
+        attribution = views["operator_attribution"]
+        operators = attribution["operators"] if details else attribution["operators"][:5]
+        lines.extend(["", "Operator-level arena-head pressure (non-additive)"])
+        for item in operators:
+            lines.append(
+                f"  Operator {item['operator_id']} {item['operator_name']}: "
+                f"live {item['live_aligned_bytes_at_scope']:,} bytes; "
+                f"occupied extent {item['occupied_extent_bytes_at_scope']:,} bytes; "
+                f"pressure {item['pressure']}"
+            )
+        lines.append("These represented live-set values are not independently additive contributions to planned arena head.")
     return "\n".join(lines)
 
 
@@ -302,6 +337,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="write a self-contained HTML analysis report",
     )
+    output_group.add_argument("--sarif", type=Path, metavar="PATH", help="write SARIF 2.1.0 findings")
     analyze_parser.add_argument(
         "--details",
         action="store_true",
@@ -347,6 +383,44 @@ def build_argument_parser() -> argparse.ArgumentParser:
     compare_budget.add_argument("--mcu-profile", metavar="PROFILE", help="shared generic MCU planning profile")
     compare_parser.add_argument("--reserve", metavar="SIZE", help="RAM reserved from the selected profile")
     compare_parser.add_argument("--fail-on-regression", action="store_true", help="return code 7 after output when candidate is a regression")
+    check_parser = subparsers.add_parser("check", help="evaluate a strict CI policy")
+    check_parser.add_argument("model", type=Path)
+    check_parser.add_argument("--policy", type=Path, required=True)
+    check_parser.add_argument("--json", type=Path, metavar="PATH")
+    check_parser.add_argument("--sarif", type=Path, metavar="PATH")
+    baseline_parser = subparsers.add_parser("baseline", help="create or check deterministic baselines")
+    baseline_sub = baseline_parser.add_subparsers(dest="baseline_command", required=True)
+    baseline_create = baseline_sub.add_parser("create")
+    baseline_create.add_argument("model", type=Path)
+    baseline_create.add_argument("--output", type=Path, required=True)
+    baseline_check_parser = baseline_sub.add_parser("check")
+    baseline_check_parser.add_argument("model", type=Path)
+    baseline_check_parser.add_argument("--baseline", type=Path, required=True)
+    baseline_check_parser.add_argument("--json", type=Path, metavar="PATH")
+    batch_parser = subparsers.add_parser("batch", help="analyze model files and directories")
+    batch_parser.add_argument("paths", type=Path, nargs="+")
+    batch_parser.add_argument("--output-dir", type=Path, required=True)
+    batch_parser.add_argument("--recursive", action="store_true")
+    batch_parser.add_argument("--fail-fast", action="store_true")
+    batch_budget = batch_parser.add_mutually_exclusive_group()
+    batch_budget.add_argument("--arena-head-budget", metavar="SIZE")
+    batch_budget.add_argument("--mcu-profile", metavar="PROFILE")
+    batch_parser.add_argument("--reserve", metavar="SIZE")
+    batch_parser.add_argument("--sarif", action="store_true", help="write aggregate SARIF")
+    firmware_parser = subparsers.add_parser("firmware-check", help="check planned head against a GNU ld map arena")
+    firmware_parser.add_argument("model", type=Path)
+    firmware_parser.add_argument("--map-file", type=Path, required=True)
+    firmware_parser.add_argument("--arena-symbol", required=True)
+    firmware_parser.add_argument("--arena-size", type=int)
+    firmware_parser.add_argument("--ram-region")
+    firmware_parser.add_argument("--stack-reserve", type=int, default=0)
+    firmware_parser.add_argument("--heap-reserve", type=int, default=0)
+    firmware_parser.add_argument("--json", type=Path, metavar="PATH")
+    deploy_parser = subparsers.add_parser("deploy-report", help="generate deterministic deployment artifacts")
+    deploy_parser.add_argument("model", type=Path)
+    deploy_parser.add_argument("--output-dir", type=Path, required=True)
+    deploy_parser.add_argument("--margin-percent", type=int, default=10)
+    subparsers.add_parser("list-profiles", help="list generic planning profiles")
     return parser
 
 
@@ -406,12 +480,126 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "analyze" and arguments.list_mcu_profiles:
         print(render_profile_listing())
         return EXIT_SUCCESS
+    if arguments.command == "list-profiles":
+        print(render_profile_listing())
+        return EXIT_SUCCESS
     explanation: MemoryExplanation | None = None
     budget: ArenaHeadBudgetResult | None = None
     guidance: MemoryRiskAssessment | None = None
     graph: GraphModel | None = None
     comparison: ModelComparison | None = None
     try:
+        if arguments.command == "baseline":
+            analysis = analyze_model(arguments.model)
+            if arguments.baseline_command == "create":
+                manifest = create_baseline_manifest(arguments.model, analysis, tool_version=__version__)
+                destination = atomic_write_json(arguments.output, manifest)
+                print(f"Baseline manifest written: {destination}")
+                return EXIT_SUCCESS
+            manifest = json.loads(arguments.baseline.read_text(encoding="utf-8"))
+            baseline_result = check_baseline(manifest, analysis, arguments.model)
+            if arguments.json is not None:
+                destination = atomic_write_json(arguments.json, baseline_result)
+                print(f"Baseline check written: {destination}")
+            else:
+                print(json.dumps(baseline_result, sort_keys=True, separators=(",", ":")))
+            return EXIT_BASELINE_DRIFT if baseline_result["status"] == "failed" else EXIT_SUCCESS
+        if arguments.command == "check":
+            analysis = analyze_model(arguments.model)
+            policy = load_policy(arguments.policy)
+            baseline_result = None
+            policy_comparison = None
+            if policy.get("baseline_manifest") is not None:
+                baseline_path = (arguments.policy.parent / str(policy["baseline_manifest"])).resolve()
+                baseline_manifest = json.loads(baseline_path.read_text(encoding="utf-8"))
+                baseline_result = check_baseline(baseline_manifest, analysis, arguments.model)
+                baseline_head = baseline_manifest["metrics"]["planned_arena_head_bytes"]
+                candidate_head = analysis["analysis"]["summary"]["planned_arena_head_bytes"]
+                delta = candidate_head - baseline_head
+                percent = delta * 100 / baseline_head if baseline_head else None
+                policy_comparison = {
+                    "metrics": {"planned_arena_head_bytes": {"delta": delta, "percent_delta": percent}},
+                    "regression": {"is_regression": delta >= 256 and percent is not None and percent >= 5},
+                }
+            policy_result = evaluate_policy(policy, analysis, comparison=policy_comparison, baseline_result=baseline_result)
+            if arguments.json is not None:
+                atomic_write_json(arguments.json, policy_result)
+            if arguments.sarif is not None:
+                findings = [
+                    {"rule_id": item["rule_id"], "message": item["message"], "level": "error", "properties": {"actual": item["actual"], "limit": item["limit"]}}
+                    for item in policy_result["failures"]
+                ]
+                atomic_write_json(arguments.sarif, sarif_document(arguments.model, findings))
+            print(json.dumps(policy_result, sort_keys=True, separators=(",", ":")))
+            return EXIT_POLICY_FAILURE if policy_result["status"] == "failed" else EXIT_SUCCESS
+        if arguments.command == "batch":
+            if arguments.reserve is not None and arguments.mcu_profile is None:
+                raise ValueError("--reserve may be used only with --mcu-profile")
+            models = resolve_models(arguments.paths, recursive=arguments.recursive)
+            output_dir = arguments.output_dir.expanduser().resolve()
+            rows: list[dict[str, object]] = []
+            sarif_runs: list[dict[str, object]] = []
+            for model in models:
+                try:
+                    model_result, model_explanation, model_graph = _calculate_analysis(model, top_tensors=10)
+                    planned = model_result["arena_head"]["bytes"]
+                    assert isinstance(planned, int)
+                    model_budget = _comparison_budget(arguments, planned)
+                    model_guidance = assess_memory_risk(model_graph, model_explanation, budget=model_budget)
+                    if model_budget is not None:
+                        model_result["arena_head_budget"] = model_budget.to_dict()
+                    model_result["memory_guidance"] = model_guidance.to_dict()
+                    stem = model.name
+                    atomic_write_json(output_dir / f"{stem}.json", model_result)
+                    html = render_html_report(model_result, model_explanation, tool_version=__version__, budget=model_budget, guidance=model_guidance)
+                    write_html_report(output_dir / f"{stem}.html", html)
+                    rows.append({"model": str(model), "status": "ok", "planned_arena_head_bytes": planned,
+                                 "overall_risk": model_guidance.overall_risk,
+                                 "budget_status": model_budget.status if model_budget else None, "error": None})
+                    if arguments.sarif:
+                        sarif_runs.extend(analysis_sarif(model, model_result)["runs"])
+                except Exception as error:
+                    rows.append({"model": str(model), "status": "error", "planned_arena_head_bytes": None,
+                                 "overall_risk": None, "budget_status": None, "error": str(error)})
+                    if arguments.fail_fast:
+                        break
+            aggregate = {"batch_schema_version": BATCH_SCHEMA_VERSION, "model_count": len(rows),
+                         "success_count": sum(item["status"] == "ok" for item in rows),
+                         "error_count": sum(item["status"] == "error" for item in rows), "models": rows}
+            atomic_write_json(output_dir / "aggregate.json", aggregate)
+            atomic_write_text(output_dir / "aggregate.csv", aggregate_csv(rows))
+            if arguments.sarif:
+                atomic_write_json(output_dir / "aggregate.sarif.json", {"$schema": "https://json.schemastore.org/sarif-2.1.0.json", "version": "2.1.0", "runs": sarif_runs})
+            print(f"Batch analyzed {aggregate['success_count']} model(s); {aggregate['error_count']} error(s). Output: {output_dir}")
+            return EXIT_BATCH_FAILURE if aggregate["error_count"] else EXIT_SUCCESS
+        if arguments.command == "firmware-check":
+            if arguments.arena_size is not None and arguments.arena_size < 0:
+                raise ValueError("--arena-size must be non-negative")
+            if arguments.stack_reserve < 0 or arguments.heap_reserve < 0:
+                raise ValueError("stack and heap reserves must be non-negative")
+            analysis = analyze_model(arguments.model)
+            map_result = parse_gnu_map(arguments.map_file.read_text(encoding="utf-8", errors="replace"), arguments.arena_symbol, arguments.ram_region)
+            planned = analysis["analysis"]["summary"]["planned_arena_head_bytes"]
+            arena_size = arguments.arena_size
+            status = "incomplete" if arena_size is None else "fits" if planned <= arena_size else "exceeds"
+            firmware_result = {"firmware_check_schema_version": 1, "status": status, "scope": "planned_arena_head_in_reserved_arena",
+                               "planned_arena_head_bytes": planned, "arena_size_bytes": arena_size,
+                               "stack_reserve_bytes": arguments.stack_reserve, "heap_reserve_bytes": arguments.heap_reserve,
+                               "map": map_result,
+                               "limitations": ["GNU ld map subset only", "complete MCU or firmware fit is not established"]}
+            if arguments.json is not None:
+                atomic_write_json(arguments.json, firmware_result)
+            print(json.dumps(firmware_result, sort_keys=True, separators=(",", ":")))
+            return EXIT_FIRMWARE_CHECK_FAILURE if status != "fits" else EXIT_SUCCESS
+        if arguments.command == "deploy-report":
+            analysis = analyze_model(arguments.model)
+            artifacts = deployment_artifacts(arguments.model, analysis, margin_percent=arguments.margin_percent)
+            output_dir = arguments.output_dir.expanduser().resolve()
+            for name, content in artifacts.items():
+                atomic_write_text(output_dir / name, content)
+            atomic_write_json(output_dir / "analysis.json", analysis)
+            print(f"Deployment artifacts written: {output_dir}")
+            return EXIT_SUCCESS
         if arguments.command == "analyze":
             if arguments.model is None:
                 raise ValueError("A model path is required unless --list-mcu-profiles is used")
@@ -454,6 +642,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             report_path = write_html_report(arguments.html, html)
         else:
             report_path = None
+        if arguments.command == "analyze" and arguments.sarif is not None:
+            report_path = atomic_write_json(arguments.sarif, analysis_sarif(arguments.model, result))
         if arguments.command == "compare" and arguments.html is not None:
             assert comparison is not None
             report_path = write_html_report(
@@ -486,7 +676,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_VALIDATION_UNAVAILABLE
 
     if report_path is not None:
-        print(f"HTML report written: {report_path}")
+        label = "SARIF report" if arguments.command == "analyze" and arguments.sarif is not None else "HTML report"
+        print(f"{label} written: {report_path}")
     elif getattr(arguments, "json", False):
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     elif arguments.command == "compare":

@@ -335,6 +335,7 @@ def render_html_report(
     )
     budget_section = _budget_section(budget) if budget is not None else ""
     guidance_section = _guidance_section(guidance) if guidance is not None else ""
+    views_section = _analysis_views_section(result)
 
     return f"""<!doctype html>
 <html lang="en">
@@ -397,6 +398,7 @@ footer {{ margin-top:24px; color:var(--muted); font-size:12px; }}
 </div>
 {budget_section}
 {guidance_section}
+{views_section}
 <section><h2>Report metadata</h2><dl class="metrics">
 <div><dt>Model filename</dt><dd>{_text(model_filename)}</dd></div><div><dt>Model path</dt><dd>{_text(model_path)}</dd></div><div><dt>TFLite schema version</dt><dd>{_text(schema_version if schema_version is not None else 'Unavailable')}</dd></div><div><dt>Generated at</dt><dd>{_text(generated_timestamp)}</dd></div><div><dt>TensorScope version</dt><dd>{_text(tool_version)}</dd></div><div><dt>Analysis scope</dt><dd>Primary subgraph · planned arena head only</dd></div>
 </dl></section>
@@ -514,6 +516,53 @@ def _guidance_section(guidance: MemoryRiskAssessment) -> str:
         "<p>This guidance covers planned arena head only.</p>"
         "<p>Model accuracy, operator support, and graph semantics must be revalidated after any model change.</p>"
         "</section>"
+    )
+
+
+def _analysis_views_section(result: dict[str, object]) -> str:
+    views = result.get("analysis_views")
+    if not isinstance(views, dict):
+        return ""
+    attribution = views["operator_attribution"]
+    timeline = views["execution_timeline"]
+    graph = views["graph_view"]
+    operators = attribution["operators"]
+    rows = "".join(
+        f"<tr><td>{item['operator_id']}</td><td>{_text(item['operator_name'])}</td>"
+        f"<td>{item['represented_input_aligned_bytes']:,}</td><td>{item['represented_output_aligned_bytes']:,}</td>"
+        f"<td>{item['live_aligned_bytes_at_scope']:,}</td><td>{item['occupied_extent_bytes_at_scope']:,}</td>"
+        f"<td>{_text(item['pressure'])}</td></tr>" for item in operators
+    )
+    scopes = timeline["scopes"]
+    maximum = max((item["occupied_extent_bytes"] for item in scopes), default=1) or 1
+    points_live = " ".join(f"{40 + index * 80},{210 - item['live_aligned_bytes'] * 170 / maximum:.2f}" for index, item in enumerate(scopes))
+    points_extent = " ".join(f"{40 + index * 80},{210 - item['occupied_extent_bytes'] * 170 / maximum:.2f}" for index, item in enumerate(scopes))
+    timeline_svg = (
+        '<svg id="execution-timeline-svg" viewBox="0 0 760 240" role="img" aria-labelledby="timeline-title timeline-desc">'
+        '<title id="timeline-title">Execution memory timeline</title><desc id="timeline-desc">Labeled lines show live aligned bytes and occupied arena extent by execution scope.</desc>'
+        f'<polyline points="{points_extent}" fill="none" stroke="#3257d5" stroke-width="3"/><polyline points="{points_live}" fill="none" stroke="#00876c" stroke-width="3"/>'
+        '<text x="40" y="232">Blue: occupied extent · Green: live aligned bytes</text></svg>'
+    )
+    nodes = graph["operators"]
+    graph_nodes = "".join(
+        f'<g><rect x="{30 + (index % 6) * 120}" y="{25 + (index // 6) * 70}" width="105" height="44" fill="#edf2ff" stroke="#3257d5"/>'
+        f'<text x="{36 + (index % 6) * 120}" y="{43 + (index // 6) * 70}">#{item["operator_id"]}</text>'
+        f'<text x="{36 + (index % 6) * 120}" y="{59 + (index // 6) * 70}">{_text(str(item["operator_name"])[:14])}</text></g>'
+        for index, item in enumerate(nodes)
+    )
+    height = max(100, 30 + ((len(nodes) + 5) // 6) * 70)
+    graph_svg = (
+        f'<svg id="model-graph-svg" viewBox="0 0 760 {height}" role="img" aria-labelledby="graph-title graph-desc">'
+        '<title id="graph-title">Primary subgraph operator view</title><desc id="graph-desc">Operator nodes are shown in deterministic execution order; tensor relationships remain available in the JSON data.</desc>'
+        f'{graph_nodes}</svg>'
+    )
+    return (
+        '<section id="operator-attribution"><h2>Operator-level arena-head pressure</h2>'
+        '<p>Represented live-set metrics are not independently additive contributions to planned arena head. Scratch observation is unavailable.</p>'
+        '<div class="table-wrap"><table><thead><tr><th>ID</th><th>Operator</th><th>Input bytes</th><th>Output bytes</th><th>Live bytes</th><th>Occupied extent</th><th>Pressure</th></tr></thead>'
+        f'<tbody>{rows}</tbody></table></div></section>'
+        f'<section id="execution-timeline"><h2>Execution timeline</h2>{timeline_svg}<p class="muted">Text fallback: {len(scopes)} scopes; data is also embedded in analysis_views.execution_timeline.</p></section>'
+        f'<section id="model-graph"><h2>Primary subgraph graph view</h2>{graph_svg}<p class="muted">Deterministic operator-order view; truncated: {_text(graph["truncated"])}.</p></section>'
     )
 
 
