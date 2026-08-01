@@ -9,6 +9,7 @@ import sys
 import pytest
 
 from tensorscope.cli import (
+    EXIT_BUDGET_EXCEEDED,
     EXIT_INPUT_ERROR,
     EXIT_REPORT_ERROR,
     EXIT_SUCCESS,
@@ -26,6 +27,8 @@ MODEL = (
     / "hello_world_float.tflite"
 )
 OPERATOR_CHAIN_MODEL = Path(__file__).parent / "model_corpus" / "models" / "operator_chain_float.tflite"
+CONV0_MODEL = Path(__file__).parent / "model_corpus" / "models" / "conv0.tflite"
+MICRO_SPEECH_MODEL = Path(__file__).parent / "model_corpus" / "models" / "micro_speech_quantized.tflite"
 REPOSITORY_ROOT = Path(__file__).parents[1]
 
 
@@ -219,6 +222,96 @@ def test_analyze_html_write_error_has_stable_exit_code(
     output = capsys.readouterr()
     assert output.out == ""
     assert "Error (report_write_error):" in output.err
+
+
+@pytest.mark.parametrize(
+    ("budget", "status", "returncode"),
+    [("129", "FITS", EXIT_SUCCESS), ("128", "EXACT FIT", EXIT_SUCCESS), ("127", "EXCEEDS BUDGET", EXIT_SUCCESS)],
+)
+def test_direct_budget_has_qualified_status(budget: str, status: str, returncode: int) -> None:
+    completed = _run_package("analyze", str(MODEL), "--arena-head-budget", budget)
+    assert completed.returncode == returncode
+    assert f"Arena-head budget result: {status}" in completed.stdout
+    assert "This check covers planned arena head only." in completed.stdout
+    assert "This is not a complete MCU or firmware memory-fit conclusion." in completed.stdout
+
+
+def test_profile_reserve_appears_in_json() -> None:
+    completed = _run_package(
+        "analyze", str(MODEL), "--mcu-profile", "cortex-m4-256k", "--reserve", "64KiB", "--json"
+    )
+    assert completed.returncode == EXIT_SUCCESS
+    budget = json.loads(completed.stdout)["arena_head_budget"]
+    assert budget == {
+        "source": "profile", "profile_id": "cortex-m4-256k",
+        "profile_name": "Cortex-M4 class — 256 KiB RAM", "profile_ram_bytes": 262144,
+        "reserve_bytes": 65536, "effective_budget_bytes": 196608,
+        "planned_arena_head_bytes": 128, "remaining_bytes": 196480,
+        "utilization_ratio": 128 / 196608, "utilization_percent": 128 / 196608 * 100,
+        "status": "fits", "scope": "arena_head",
+    }
+
+
+def test_analyze_without_budget_has_no_budget_object() -> None:
+    completed = _run_package("analyze", str(MODEL), "--json")
+    assert "arena_head_budget" not in json.loads(completed.stdout)
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ("--arena-head-budget", "1", "--mcu-profile", "cortex-m0-32k"),
+        ("--reserve", "1"),
+        ("--fail-on-budget-exceeded",),
+        ("--arena-head-budget", "1KB"),
+        ("--mcu-profile", "unknown"),
+        ("--mcu-profile", "cortex-m0-32k", "--reserve", "33KiB"),
+    ],
+)
+def test_invalid_budget_cli_inputs_fail(arguments: tuple[str, ...]) -> None:
+    completed = _run_package("analyze", str(MODEL), *arguments)
+    assert completed.returncode == EXIT_INPUT_ERROR
+    assert completed.stderr
+
+
+def test_profile_listing_needs_no_model_and_is_deterministic() -> None:
+    first = _run_package("analyze", "--list-mcu-profiles")
+    second = _run_package("analyze", "--list-mcu-profiles")
+    assert first.returncode == EXIT_SUCCESS
+    assert first.stdout == second.stdout
+    assert "cortex-m0-32k\tCortex-M0 class — 32 KiB RAM\t32768 bytes" in first.stdout
+    assert "generic planning presets, not specifications" in first.stdout
+
+
+def test_fail_on_exceeded_uses_dedicated_code_but_exact_fit_succeeds() -> None:
+    exceeded = _run_package("analyze", str(MODEL), "--arena-head-budget", "127", "--fail-on-budget-exceeded")
+    exact = _run_package("analyze", str(MODEL), "--arena-head-budget", "128", "--fail-on-budget-exceeded")
+    assert exceeded.returncode == EXIT_BUDGET_EXCEEDED
+    assert "EXCEEDS BUDGET" in exceeded.stdout
+    assert exact.returncode == EXIT_SUCCESS
+
+
+def test_html_is_written_before_budget_failure(tmp_path: Path) -> None:
+    destination = tmp_path / "failed-budget.html"
+    completed = _run_package(
+        "analyze", str(MODEL), "--arena-head-budget", "127",
+        "--fail-on-budget-exceeded", "--html", str(destination),
+    )
+    assert completed.returncode == EXIT_BUDGET_EXCEEDED
+    assert destination.is_file()
+    assert "Arena-head budget result: EXCEEDS BUDGET" in destination.read_text(encoding="utf-8")
+
+
+def test_budget_checks_cover_required_integration_corpus() -> None:
+    operator_chain = _run_package("analyze", str(OPERATOR_CHAIN_MODEL), "--arena-head-budget", "128", "--json")
+    conv0 = _run_package("analyze", str(CONV0_MODEL), "--arena-head-budget", "1KiB", "--json")
+    micro_speech = _run_package(
+        "analyze", str(MICRO_SPEECH_MODEL), "--mcu-profile", "cortex-m4-128k",
+        "--reserve", "32KiB", "--json",
+    )
+    assert json.loads(operator_chain.stdout)["arena_head_budget"]["status"] == "exact_fit"
+    assert json.loads(conv0.stdout)["arena_head_budget"]["status"] == "exceeds"
+    assert json.loads(micro_speech.stdout)["arena_head_budget"]["status"] == "fits"
 
 
 def test_json_and_html_are_mutually_exclusive(tmp_path: Path) -> None:
