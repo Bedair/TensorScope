@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from html import escape
+import os
 from pathlib import Path
+import tempfile
 
 from tensorscope.explain import MemoryExplanation, TensorExplanation
+from tensorscope.memory_budget import ArenaHeadBudgetResult
 
 
 class HTMLReportError(OSError):
@@ -290,6 +293,7 @@ def render_html_report(
     *,
     tool_version: str,
     generated_at: datetime | None = None,
+    budget: ArenaHeadBudgetResult | None = None,
 ) -> str:
     """Render one deterministic, dependency-free HTML analysis report."""
 
@@ -327,6 +331,7 @@ def render_html_report(
         "</tr>"
         for scope in explanation.scopes
     )
+    budget_section = _budget_section(budget) if budget is not None else ""
 
     return f"""<!doctype html>
 <html lang="en">
@@ -343,6 +348,7 @@ h1 {{ margin:0 0 4px; font-size:28px; }} h2 {{ margin:30px 0 12px; font-size:20p
 .subtitle,.muted {{ color:var(--muted); }} .subtitle {{ overflow-wrap:anywhere; }}
 .notice {{ margin:20px 0; padding:14px 16px; border-left:4px solid var(--accent); background:#edf2ff; }}
 .notice p {{ margin:3px 0; }}
+.budget-status {{ display:inline-block; padding:4px 9px; border:2px solid currentColor; border-radius:4px; font-weight:750; }}
 .cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }}
 .card,section {{ background:var(--paper); border:1px solid var(--line); border-radius:8px; }}
 .card {{ padding:15px; }} .card .label {{ color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }}
@@ -385,6 +391,7 @@ footer {{ margin-top:24px; color:var(--muted); font-size:12px; }}
 <div class="card"><span class="label">Arena tail</span><span class="value">{_bytes(tail.get('bytes'))}</span><div class="tags"><span class="tag">scope: {_text(tail.get('scope'))}</span><span class="tag">confidence: {_text(tail.get('confidence'))}</span><span class="tag">validation: {_text(tail.get('validation_state'))}</span></div></div>
 <div class="card"><span class="label">Complete arena total</span><span class="value">{_bytes(total.get('bytes'))}</span><div class="tags"><span class="tag">scope: {_text(total.get('scope'))}</span><span class="tag">confidence: {_text(total.get('confidence'))}</span><span class="tag">validation: {_text(total.get('validation_state'))}</span></div></div>
 </div>
+{budget_section}
 <section><h2>Report metadata</h2><dl class="metrics">
 <div><dt>Model filename</dt><dd>{_text(model_filename)}</dd></div><div><dt>Model path</dt><dd>{_text(model_path)}</dd></div><div><dt>TFLite schema version</dt><dd>{_text(schema_version if schema_version is not None else 'Unavailable')}</dd></div><div><dt>Generated at</dt><dd>{_text(generated_timestamp)}</dd></div><div><dt>TensorScope version</dt><dd>{_text(tool_version)}</dd></div><div><dt>Analysis scope</dt><dd>Primary subgraph · planned arena head only</dd></div>
 </dl></section>
@@ -416,15 +423,77 @@ footer {{ margin-top:24px; color:var(--muted); font-size:12px; }}
 """
 
 
+def _budget_section(budget: ArenaHeadBudgetResult) -> str:
+    status = {
+        "fits": "FITS",
+        "exact_fit": "EXACT FIT",
+        "exceeds": "EXCEEDS BUDGET",
+    }[budget.status]
+    profile_fields = ""
+    if budget.profile_name is not None:
+        profile_fields = (
+            f"<div><dt>Profile</dt><dd>{_text(budget.profile_name)} ({_text(budget.profile_id)})</dd></div>"
+            f"<div><dt>Profile RAM</dt><dd>{budget.profile_ram_bytes:,} bytes</dd></div>"
+        )
+    if budget.remaining_bytes >= 0:
+        difference = f"<div><dt>Remaining budget</dt><dd>{budget.remaining_bytes:,} bytes</dd></div>"
+    else:
+        difference = f"<div><dt>Exceeded by</dt><dd>{-budget.remaining_bytes:,} bytes</dd></div>"
+    utilization = (
+        "Not defined for a zero-byte budget"
+        if budget.utilization_percent is None
+        else f"{budget.utilization_percent:.2f}%"
+    )
+    source = "Direct arena-head budget" if budget.source == "direct" else "Generic MCU planning profile"
+    return (
+        '<section id="arena-head-budget"><h2>Arena-head budget check</h2>'
+        f'<p><span class="budget-status">Arena-head budget result: {status}</span></p>'
+        '<dl class="metrics">'
+        f"<div><dt>Budget source</dt><dd>{source}</dd></div>"
+        f"{profile_fields}"
+        f"<div><dt>Reserved RAM</dt><dd>{budget.reserve_bytes:,} bytes</dd></div>"
+        f"<div><dt>Effective arena-head budget</dt><dd>{budget.effective_budget_bytes:,} bytes</dd></div>"
+        f"<div><dt>Planned arena head</dt><dd>{budget.planned_arena_head_bytes:,} bytes</dd></div>"
+        f"{difference}"
+        f"<div><dt>Utilization</dt><dd>{utilization}</dd></div>"
+        f"<div><dt>Scope</dt><dd>{_text(budget.scope)}</dd></div>"
+        "</dl>"
+        "<p><strong>This check covers planned arena head only.</strong></p>"
+        "<p>This is not a complete MCU or firmware memory-fit conclusion.</p>"
+        "</section>"
+    )
+
+
 def write_html_report(path: str | Path, content: str) -> Path:
     """Write UTF-8 HTML and return the resolved output path."""
 
     destination = Path(path).expanduser().resolve()
+    temporary_name: str | None = None
     try:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(content, encoding="utf-8", newline="\n")
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_name = temporary.name
+            temporary.write(content)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_name, destination)
+        temporary_name = None
     except OSError as error:
         raise HTMLReportError(
             f"Unable to write HTML report {destination}: {error}"
         ) from error
+    finally:
+        if temporary_name is not None:
+            try:
+                Path(temporary_name).unlink()
+            except OSError:
+                pass
     return destination

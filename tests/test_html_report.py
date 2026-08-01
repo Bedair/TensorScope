@@ -17,6 +17,7 @@ from tensorscope.html_report import (
     render_html_report,
     write_html_report,
 )
+from tensorscope.memory_budget import evaluate_direct_budget, evaluate_profile_budget, get_mcu_profile
 from tensorscope.tflite.model_loader import load_tflite_model
 
 
@@ -150,6 +151,42 @@ def test_report_has_complete_visible_limitations_section() -> None:
 
 def test_report_is_deterministic() -> None:
     assert _report() == _report()
+
+
+@pytest.mark.parametrize(
+    ("planned", "budget", "label"),
+    [(127, 128, "FITS"), (128, 128, "EXACT FIT"), (129, 128, "EXCEEDS BUDGET")],
+)
+def test_budget_section_renders_every_textual_status(planned: int, budget: int, label: str) -> None:
+    model = CORPUS / "hello_world_float.tflite"
+    graph = convert_tflite_model(load_tflite_model(model))
+    report = render_html_report(
+        analyze_model(model), explain_primary_subgraph_memory(graph), tool_version=__version__,
+        generated_at=FIXED_TIME, budget=evaluate_direct_budget(planned, budget),
+    )
+    assert '<section id="arena-head-budget">' in report
+    assert f"Arena-head budget result: {label}" in report
+    assert "This check covers planned arena head only." in report
+    assert "This is not a complete MCU or firmware memory-fit conclusion." in report
+    assert '<svg id="arena-packing-svg"' in report
+
+
+def test_profile_budget_section_includes_escaped_profile_and_reserve() -> None:
+    model = CORPUS / "hello_world_float.tflite"
+    graph = convert_tflite_model(load_tflite_model(model))
+    profile = replace(get_mcu_profile("cortex-m4-128k"), display_name='<Profile & "name">')
+    report = render_html_report(
+        analyze_model(model), explain_primary_subgraph_memory(graph), tool_version=__version__,
+        generated_at=FIXED_TIME, budget=evaluate_profile_budget(128, profile, 32768),
+    )
+    assert "&lt;Profile &amp; &quot;name&quot;&gt;" in report
+    assert "Profile RAM</dt><dd>131,072 bytes" in report
+    assert "Reserved RAM</dt><dd>32,768 bytes" in report
+    assert "Utilization</dt><dd>0.13%" in report
+
+
+def test_report_without_budget_preserves_absence() -> None:
+    assert 'id="arena-head-budget"' not in _report()
 
 
 def test_main_svg_has_accessible_deterministic_tensor_rectangles() -> None:
