@@ -314,6 +314,42 @@ def test_budget_checks_cover_required_integration_corpus() -> None:
     assert json.loads(micro_speech.stdout)["arena_head_budget"]["status"] == "fits"
 
 
+def test_analyze_text_renders_ranked_memory_guidance_and_disclaimers() -> None:
+    completed = _run_package("analyze", str(MODEL))
+    assert completed.returncode == EXIT_SUCCESS
+    assert "Memory risk and optimization guidance" in completed.stdout
+    assert "Risk summary: HIGH" in completed.stdout
+    assert "1. Peak memory is concentrated" in completed.stdout
+    assert "Recommendations are evidence-based suggestions, not guaranteed byte savings." in completed.stdout
+    assert "This guidance covers planned arena head only." in completed.stdout
+    assert "Model accuracy, operator support, and graph semantics must be revalidated" in completed.stdout
+
+
+def test_analyze_json_has_stable_numeric_guidance_with_and_without_budget() -> None:
+    plain = json.loads(_run_package("analyze", str(MODEL), "--json").stdout)
+    budgeted = json.loads(_run_package(
+        "analyze", str(MODEL), "--arena-head-budget", "128", "--json"
+    ).stdout)
+    assert plain["memory_guidance"]["scope"] == "arena_head"
+    assert plain["memory_guidance"]["findings"][0]["finding_id"] == "peak-concentration-t7"
+    assert isinstance(plain["memory_guidance"]["findings"][0]["evidence"]["share_percent"], float)
+    budget_finding = next(
+        item for item in budgeted["memory_guidance"]["findings"]
+        if item["category"] == "budget_pressure"
+    )
+    assert budget_finding["severity"] == "high"
+    assert budget_finding["evidence"]["utilization_percent"] == 100.0
+    assert plain["arena_tail"]["bytes"] is None
+
+
+def test_details_shows_all_guidance_without_default_limit() -> None:
+    default = _run_package("analyze", str(OPERATOR_CHAIN_MODEL))
+    detailed = _run_package("analyze", str(OPERATOR_CHAIN_MODEL), "--details")
+    assert "Showing 5 of" in default.stdout
+    assert "Showing 5 of" not in detailed.stdout
+    assert "Tensor 20 blocks multiple reuse opportunities" in detailed.stdout
+
+
 def test_json_and_html_are_mutually_exclusive(tmp_path: Path) -> None:
     completed = _run_package(
         "analyze",

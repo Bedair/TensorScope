@@ -18,6 +18,7 @@ from tensorscope.html_report import (
     write_html_report,
 )
 from tensorscope.memory_budget import evaluate_direct_budget, evaluate_profile_budget, get_mcu_profile
+from tensorscope.recommendations import assess_memory_risk
 from tensorscope.tflite.model_loader import load_tflite_model
 
 
@@ -187,6 +188,30 @@ def test_profile_budget_section_includes_escaped_profile_and_reserve() -> None:
 
 def test_report_without_budget_preserves_absence() -> None:
     assert 'id="arena-head-budget"' not in _report()
+
+
+def test_guidance_html_is_self_contained_escaped_and_preserves_svg_and_budget() -> None:
+    model = CORPUS / "hello_world_float.tflite"
+    graph = convert_tflite_model(load_tflite_model(model))
+    explanation = explain_primary_subgraph_memory(graph)
+    budget = evaluate_direct_budget(128, 128)
+    guidance = assess_memory_risk(graph, explanation, budget=budget)
+    dangerous = replace(guidance.findings[0], title='<script>alert("risk")</script>')
+    guidance = replace(guidance, findings=(dangerous, *guidance.findings[1:]))
+    report = render_html_report(
+        analyze_model(model), explanation, tool_version=__version__, generated_at=FIXED_TIME,
+        budget=budget, guidance=guidance,
+    )
+    assert '<section id="memory-guidance">' in report
+    assert "Memory risk and optimization guidance" in report
+    assert "Overall risk: HIGH" in report
+    assert "Recommendation review-peak-tensors" in report
+    assert "Recommendations are evidence-based suggestions, not guaranteed byte savings." in report
+    assert dangerous.title not in report
+    assert "&lt;script&gt;alert(&quot;risk&quot;)&lt;/script&gt;" in report
+    assert '<section id="arena-head-budget">' in report
+    assert '<svg id="arena-packing-svg"' in report
+    assert "http://" not in report.lower() and "https://" not in report.lower()
 
 
 def test_main_svg_has_accessible_deterministic_tensor_rectangles() -> None:
