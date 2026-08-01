@@ -13,6 +13,11 @@ from tensorscope.graph import (
     calculate_graph_memory_plan,
     convert_tflite_model,
 )
+from tensorscope.html_report import (
+    HTMLReportError,
+    render_html_report,
+    write_html_report,
+)
 from tensorscope.oracle import TFLMOracleError
 from tensorscope.oracle_validation import validate_model_against_tflm
 from tensorscope.results import MemoryFigure
@@ -26,6 +31,7 @@ EXIT_SUCCESS = 0
 EXIT_INPUT_ERROR = 2
 EXIT_VALIDATION_UNAVAILABLE = 3
 EXIT_VALIDATION_MISMATCH = 4
+EXIT_REPORT_ERROR = 5
 
 
 class ValidationUnavailableError(RuntimeError):
@@ -76,6 +82,11 @@ def _calculate_analysis(
     )
     result = {
         "model_path": str(path),
+        "model": {
+            "filename": path.name,
+            "path": str(path),
+            "schema_version": graph.schema_version,
+        },
         "command": "analyze",
         "arena_head": head.to_dict(),
         "arena_tail": tail.to_dict(),
@@ -194,8 +205,15 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "analyze", help="statically analyze arena-head memory"
     )
     analyze_parser.add_argument("model", type=Path, help="path to a .tflite model")
-    analyze_parser.add_argument(
+    output_group = analyze_parser.add_mutually_exclusive_group()
+    output_group.add_argument(
         "--json", action="store_true", help="emit stable machine-readable JSON"
+    )
+    output_group.add_argument(
+        "--html",
+        type=Path,
+        metavar="PATH",
+        help="write a self-contained HTML analysis report",
     )
     analyze_parser.add_argument(
         "--details",
@@ -262,6 +280,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             result, exact_match = validate_model(arguments.model)
             exit_code = EXIT_SUCCESS if exact_match else EXIT_VALIDATION_MISMATCH
+        if arguments.command == "analyze" and arguments.html is not None:
+            assert explanation is not None
+            html = render_html_report(
+                result,
+                explanation,
+                tool_version=__version__,
+            )
+            report_path = write_html_report(arguments.html, html)
+        else:
+            report_path = None
     except (FileNotFoundError, TFLiteModelError, ValueError) as error:
         _print_error(
             str(error),
@@ -270,6 +298,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_code=EXIT_INPUT_ERROR,
         )
         return EXIT_INPUT_ERROR
+    except HTMLReportError as error:
+        _print_error(
+            str(error),
+            as_json=False,
+            error_type="report_write_error",
+            exit_code=EXIT_REPORT_ERROR,
+        )
+        return EXIT_REPORT_ERROR
     except (TFLMOracleError, ValidationUnavailableError, OSError) as error:
         _print_error(
             str(error),
@@ -279,7 +315,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return EXIT_VALIDATION_UNAVAILABLE
 
-    if arguments.json:
+    if report_path is not None:
+        print(f"HTML report written: {report_path}")
+    elif arguments.json:
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     else:
         print(
