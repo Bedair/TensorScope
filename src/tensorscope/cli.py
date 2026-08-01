@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Sequence
 
 from tensorscope import __version__
+from tensorscope.comparison import ComparisonInput, ModelComparison, compare_models, render_comparison_text
+from tensorscope.comparison_report import render_comparison_html
 from tensorscope.explain import MemoryExplanation, explain_primary_subgraph_memory
 from tensorscope.graph import (
     GraphModel,
@@ -47,6 +49,7 @@ EXIT_VALIDATION_UNAVAILABLE = 3
 EXIT_VALIDATION_MISMATCH = 4
 EXIT_REPORT_ERROR = 5
 EXIT_BUDGET_EXCEEDED = 6
+EXIT_COMPARISON_REGRESSION = 7
 
 
 class ValidationUnavailableError(RuntimeError):
@@ -330,7 +333,48 @@ def build_argument_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument(
         "--json", action="store_true", help="emit stable machine-readable JSON"
     )
+    compare_parser = subparsers.add_parser(
+        "compare", help="compare static arena-head memory for two models"
+    )
+    compare_parser.add_argument("baseline", type=Path, help="baseline .tflite model")
+    compare_parser.add_argument("candidate", type=Path, help="candidate .tflite model")
+    compare_output = compare_parser.add_mutually_exclusive_group()
+    compare_output.add_argument("--json", action="store_true", help="emit stable machine-readable JSON")
+    compare_output.add_argument("--html", type=Path, metavar="PATH", help="write a self-contained comparison HTML report")
+    compare_parser.add_argument("--details", action="store_true", help="show all tensor changes")
+    compare_budget = compare_parser.add_mutually_exclusive_group()
+    compare_budget.add_argument("--arena-head-budget", metavar="SIZE", help="shared arena-head byte budget")
+    compare_budget.add_argument("--mcu-profile", metavar="PROFILE", help="shared generic MCU planning profile")
+    compare_parser.add_argument("--reserve", metavar="SIZE", help="RAM reserved from the selected profile")
+    compare_parser.add_argument("--fail-on-regression", action="store_true", help="return code 7 after output when candidate is a regression")
     return parser
+
+
+def _comparison_budget(arguments: argparse.Namespace, planned: int) -> ArenaHeadBudgetResult | None:
+    if arguments.arena_head_budget is not None:
+        return evaluate_direct_budget(planned, parse_size(arguments.arena_head_budget))
+    if arguments.mcu_profile is not None:
+        reserve = parse_size(arguments.reserve) if arguments.reserve is not None else 0
+        return evaluate_profile_budget(planned, get_mcu_profile(arguments.mcu_profile), reserve)
+    return None
+
+
+def _calculate_comparison(arguments: argparse.Namespace) -> ModelComparison:
+    if arguments.reserve is not None and arguments.mcu_profile is None:
+        raise ValueError("--reserve may be used only with --mcu-profile")
+    baseline_result, baseline_explanation, baseline_graph = _calculate_analysis(arguments.baseline, top_tensors=10)
+    candidate_result, candidate_explanation, candidate_graph = _calculate_analysis(arguments.candidate, top_tensors=10)
+    baseline_head = baseline_result["arena_head"]["bytes"]
+    candidate_head = candidate_result["arena_head"]["bytes"]
+    assert isinstance(baseline_head, int) and isinstance(candidate_head, int)
+    baseline_budget = _comparison_budget(arguments, baseline_head)
+    candidate_budget = _comparison_budget(arguments, candidate_head)
+    baseline_guidance = assess_memory_risk(baseline_graph, baseline_explanation, budget=baseline_budget)
+    candidate_guidance = assess_memory_risk(candidate_graph, candidate_explanation, budget=candidate_budget)
+    return compare_models(
+        ComparisonInput(str(Path(arguments.baseline).expanduser().resolve()), baseline_graph, baseline_explanation, baseline_guidance, baseline_budget),
+        ComparisonInput(str(Path(arguments.candidate).expanduser().resolve()), candidate_graph, candidate_explanation, candidate_guidance, candidate_budget),
+    )
 
 
 def _print_error(
@@ -366,6 +410,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     budget: ArenaHeadBudgetResult | None = None
     guidance: MemoryRiskAssessment | None = None
     graph: GraphModel | None = None
+    comparison: ModelComparison | None = None
     try:
         if arguments.command == "analyze":
             if arguments.model is None:
@@ -390,9 +435,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             guidance = assess_memory_risk(graph, explanation, budget=budget)
             result["memory_guidance"] = guidance.to_dict()
             exit_code = EXIT_SUCCESS
-        else:
+        elif arguments.command == "validate":
             result, exact_match = validate_model(arguments.model)
             exit_code = EXIT_SUCCESS if exact_match else EXIT_VALIDATION_MISMATCH
+        else:
+            comparison = _calculate_comparison(arguments)
+            result = comparison.to_dict()
+            exit_code = EXIT_SUCCESS
         if arguments.command == "analyze" and arguments.html is not None:
             assert explanation is not None
             html = render_html_report(
@@ -405,10 +454,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             report_path = write_html_report(arguments.html, html)
         else:
             report_path = None
+        if arguments.command == "compare" and arguments.html is not None:
+            assert comparison is not None
+            report_path = write_html_report(
+                arguments.html,
+                render_comparison_html(comparison, tool_version=__version__),
+            )
     except (FileNotFoundError, TFLiteModelError, ValueError) as error:
         _print_error(
             str(error),
-            as_json=arguments.json,
+            as_json=getattr(arguments, "json", False),
             error_type="unsupported_input",
             exit_code=EXIT_INPUT_ERROR,
         )
@@ -424,7 +479,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (TFLMOracleError, ValidationUnavailableError, OSError) as error:
         _print_error(
             str(error),
-            as_json=arguments.json,
+            as_json=getattr(arguments, "json", False),
             error_type="validation_unavailable",
             exit_code=EXIT_VALIDATION_UNAVAILABLE,
         )
@@ -432,8 +487,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if report_path is not None:
         print(f"HTML report written: {report_path}")
-    elif arguments.json:
+    elif getattr(arguments, "json", False):
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+    elif arguments.command == "compare":
+        assert comparison is not None
+        print(render_comparison_text(comparison, details=arguments.details))
     else:
         print(
             _render_text(
@@ -445,8 +503,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 guidance=guidance,
             )
         )
-    if budget is not None and arguments.fail_on_budget_exceeded and budget.status == "exceeds":
+    if arguments.command == "analyze" and budget is not None and arguments.fail_on_budget_exceeded and budget.status == "exceeds":
         return EXIT_BUDGET_EXCEEDED
+    if arguments.command == "compare" and arguments.fail_on_regression and comparison is not None and comparison.regression.is_regression:
+        return EXIT_COMPARISON_REGRESSION
     return exit_code
 
 
