@@ -7,10 +7,16 @@ from pathlib import Path
 from typing import Sequence
 
 from tensorscope import __version__
-from tensorscope.graph import calculate_graph_memory_plan, convert_tflite_model
+from tensorscope.explain import MemoryExplanation, explain_primary_subgraph_memory
+from tensorscope.graph import (
+    calculate_graph_lifetimes,
+    calculate_graph_memory_plan,
+    convert_tflite_model,
+)
 from tensorscope.oracle import TFLMOracleError
 from tensorscope.oracle_validation import validate_model_against_tflm
 from tensorscope.results import MemoryFigure
+from tensorscope.text_report import render_memory_explanation
 from tensorscope.tflite.model_loader import TFLiteModelError, load_tflite_model
 
 
@@ -45,10 +51,21 @@ def _unknown_figures() -> tuple[MemoryFigure, MemoryFigure]:
     )
 
 
-def analyze_model(model_path: str | Path) -> dict[str, object]:
+def _calculate_analysis(
+    model_path: str | Path,
+    *,
+    top_tensors: int,
+) -> tuple[dict[str, object], MemoryExplanation]:
     path = Path(model_path).expanduser().resolve()
     graph = convert_tflite_model(load_tflite_model(path))
-    plan = calculate_graph_memory_plan(graph)
+    lifetimes = calculate_graph_lifetimes(graph)
+    plan = calculate_graph_memory_plan(graph, lifetimes)
+    explanation = explain_primary_subgraph_memory(
+        graph,
+        lifetimes=lifetimes,
+        memory_plan=plan,
+        largest_limit=top_tensors,
+    )
     tail, total = _unknown_figures()
     head = MemoryFigure(
         bytes=plan.maximum_memory_size,
@@ -57,13 +74,24 @@ def analyze_model(model_path: str | Path) -> dict[str, object]:
         source="static_analysis",
         validation_state="not_validated",
     )
-    return {
+    result = {
         "model_path": str(path),
         "command": "analyze",
         "arena_head": head.to_dict(),
         "arena_tail": tail.to_dict(),
         "arena_total": total.to_dict(),
+        "analysis": explanation.to_dict(),
     }
+    return result, explanation
+
+
+def analyze_model(
+    model_path: str | Path,
+    *,
+    top_tensors: int = 10,
+) -> dict[str, object]:
+    result, _ = _calculate_analysis(model_path, top_tensors=top_tensors)
+    return result
 
 
 def validate_model(model_path: str | Path) -> tuple[dict[str, object], bool]:
@@ -113,7 +141,13 @@ def _format_figure(label: str, figure: dict[str, object]) -> str:
     return f"{label}: {rendered_value} [{'; '.join(metadata)}]"
 
 
-def _render_text(result: dict[str, object]) -> str:
+def _render_text(
+    result: dict[str, object],
+    *,
+    explanation: MemoryExplanation | None = None,
+    details: bool = False,
+    include_ascii: bool = True,
+) -> str:
     lines = [f"Model: {result['model_path']}"]
     validation = result.get("validation")
     if isinstance(validation, dict):
@@ -141,6 +175,14 @@ def _render_text(result: dict[str, object]) -> str:
             "Complete arena total is not yet statically estimated.",
         ]
     )
+    if explanation is not None:
+        lines.append(
+            render_memory_explanation(
+                explanation,
+                details=details,
+                include_ascii=include_ascii,
+            )
+        )
     return "\n".join(lines)
 
 
@@ -148,15 +190,38 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tensorscope")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for command, help_text in (
-        ("analyze", "statically analyze arena-head memory"),
-        ("validate", "validate arena-head memory with the TFLM oracle"),
-    ):
-        command_parser = subparsers.add_parser(command, help=help_text)
-        command_parser.add_argument("model", type=Path, help="path to a .tflite model")
-        command_parser.add_argument(
-            "--json", action="store_true", help="emit stable machine-readable JSON"
-        )
+    analyze_parser = subparsers.add_parser(
+        "analyze", help="statically analyze arena-head memory"
+    )
+    analyze_parser.add_argument("model", type=Path, help="path to a .tflite model")
+    analyze_parser.add_argument(
+        "--json", action="store_true", help="emit stable machine-readable JSON"
+    )
+    analyze_parser.add_argument(
+        "--details",
+        action="store_true",
+        help="show every allocation and conservative reuse blockers",
+    )
+    analyze_parser.add_argument(
+        "--top-tensors",
+        type=int,
+        default=10,
+        metavar="N",
+        help="number of largest tensors to report (default: 10)",
+    )
+    analyze_parser.add_argument(
+        "--ascii",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="show the ASCII arena-head packing view (default: enabled)",
+    )
+    validate_parser = subparsers.add_parser(
+        "validate", help="validate arena-head memory with the TFLM oracle"
+    )
+    validate_parser.add_argument("model", type=Path, help="path to a .tflite model")
+    validate_parser.add_argument(
+        "--json", action="store_true", help="emit stable machine-readable JSON"
+    )
     return parser
 
 
@@ -186,9 +251,13 @@ def _print_error(
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = build_argument_parser().parse_args(argv)
+    explanation: MemoryExplanation | None = None
     try:
         if arguments.command == "analyze":
-            result = analyze_model(arguments.model)
+            result, explanation = _calculate_analysis(
+                arguments.model,
+                top_tensors=arguments.top_tensors,
+            )
             exit_code = EXIT_SUCCESS
         else:
             result, exact_match = validate_model(arguments.model)
@@ -213,7 +282,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.json:
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     else:
-        print(_render_text(result))
+        print(
+            _render_text(
+                result,
+                explanation=explanation,
+                details=getattr(arguments, "details", False),
+                include_ascii=getattr(arguments, "ascii", False),
+            )
+        )
     return exit_code
 
 

@@ -99,6 +99,13 @@ def test_analyze_json_is_stable(capsys: pytest.CaptureFixture[str]) -> None:
     assert result["arena_head"]["confidence"] == "exact"
     assert result["arena_head"]["source"] == "static_analysis"
     assert result["arena_head"]["validation_state"] == "not_validated"
+    analysis = result["analysis"]
+    assert analysis["summary"]["planned_arena_head_bytes"] == 128
+    assert analysis["summary"]["arena_alignment_bytes"] == 16
+    assert analysis["peak"]["live_tensor_ids"]
+    assert analysis["allocations"]
+    assert "reuse" in analysis
+    assert "reuse_blockers" in analysis
 
 
 def test_human_output_names_every_scope(
@@ -112,6 +119,46 @@ def test_human_output_names_every_scope(
     assert "Complete arena total is not yet statically estimated." in output
     assert "None" not in output
     assert "EXACT MATCH" not in output
+
+
+def test_analyze_detailed_text_includes_explanation_and_ascii(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["analyze", str(MODEL), "--details"]) == EXIT_SUCCESS
+
+    output = capsys.readouterr().out
+    assert "This report covers planned arena head only." in output
+    assert "Largest tensors" in output
+    assert "Peak execution point:" in output
+    assert "Live tensors at peak:" in output
+    assert "Packing table:" in output
+    assert "Reuse summary:" in output
+    assert "Reuse blockers (conservative):" in output
+    assert "Arena-head packing: 128 bytes" in output
+    assert "Arena tail is not yet statically estimated." in output
+    assert "Complete arena total is not yet statically estimated." in output
+
+
+def test_analyze_no_ascii_preserves_text_report(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["analyze", str(MODEL), "--no-ascii"]) == EXIT_SUCCESS
+
+    output = capsys.readouterr().out
+    assert "Packing table:" in output
+    assert "Arena-head packing:" not in output
+
+
+def test_top_tensors_option_controls_json_ranking(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        main(["analyze", str(MODEL), "--top-tensors", "2", "--json"])
+        == EXIT_SUCCESS
+    )
+
+    result = json.loads(capsys.readouterr().out)
+    assert len(result["analysis"]["largest_tensors"]) == 2
 
 
 def test_unsupported_input_has_stable_json_error(
