@@ -325,6 +325,11 @@ int main(
   std::printf("arena_temporary_bytes=unavailable\n");
   std::printf("arena_remaining_bytes=%zu\n", arena_remaining_bytes);
   std::printf("allocator_alignment_bytes=%zu\n", kArenaAlignment);
+  std::printf("scratch_observation_available=false\n");
+  std::printf("scratch_request_count=unavailable\n");
+  std::printf("scratch_requested_total_bytes=unavailable\n");
+  std::printf("scratch_peak_bytes=unavailable\n");
+  std::printf("scratch_operator_attribution=unavailable\n");
   std::printf("tflm_revision=%s\n", kTflmRevision);
   std::printf("TENSOR_SCOPE_ORACLE_END\n");
   std::fflush(stdout);

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 import re
+from pathlib import Path
 from typing import Literal
 
 from tensorscope.explain import MemoryExplanation, TensorExplanation
@@ -120,6 +121,7 @@ class ModelComparison:
     peak_comparison: tuple[tuple[str, object], ...]
     operator_comparison: tuple[tuple[str, object], ...]
     guidance_comparison: tuple[tuple[str, object], ...]
+    quantization_comparison: tuple[tuple[str, object], ...]
     budget_comparison: tuple[tuple[str, object], ...] | None
     comparison_schema_version: int = 1
 
@@ -148,6 +150,7 @@ class ModelComparison:
             "peak_comparison": dict(self.peak_comparison),
             "operator_comparison": dict(self.operator_comparison),
             "guidance_comparison": dict(self.guidance_comparison),
+            "quantization_comparison": dict(self.quantization_comparison),
             "budget_comparison": dict(self.budget_comparison) if self.budget_comparison is not None else None,
         }
 
@@ -221,9 +224,15 @@ def match_tensors(
         return normalize_tensor_name(tensor.name) or None
 
     def structural_key(tensor, producers, consumers):
+        selected_graph = baseline_graph if producers is baseline_producers else candidate_graph
+        graph_tensor = selected_graph.primary_subgraph.tensors[tensor.tensor_id] if tensor.tensor_id < len(selected_graph.primary_subgraph.tensors) else None
+        quantization = graph_tensor.quantization if graph_tensor is not None else None
         return (
-            tensor.data_type, tensor.shape, tensor.is_graph_input, tensor.is_graph_output,
+            0, tensor.data_type, tensor.shape, tensor.is_graph_input, tensor.is_graph_output,
             producers.get(tensor.tensor_id), consumers.get(tensor.tensor_id, ()),
+            len(quantization.scales) if quantization else 0,
+            len(quantization.zero_points) if quantization else 0,
+            quantization.quantized_dimension if quantization else 0,
         )
 
     apply_tier(exact_key, "exact", "normalized_name_type_shape")
@@ -370,6 +379,43 @@ def _budget_comparison(
     )
 
 
+def _quantization_comparison(
+    baseline: ComparisonInput, candidate: ComparisonInput, matches: tuple[TensorMatch, ...],
+) -> tuple[tuple[str, object], ...]:
+    changes = []
+    for match in matches:
+        left = baseline.graph.primary_subgraph.tensor(match.baseline_tensor_id)
+        right = candidate.graph.primary_subgraph.tensor(match.candidate_tensor_id)
+        left_allocation = next(item for item in baseline.explanation.allocations if item.tensor_id == match.baseline_tensor_id)
+        right_allocation = next(item for item in candidate.explanation.allocations if item.tensor_id == match.candidate_tensor_id)
+        if left.data_type == right.data_type and left.quantization == right.quantization:
+            continue
+        changes.append({
+            "baseline_tensor_id": left.id, "candidate_tensor_id": right.id,
+            "baseline_element_type": left.data_type.name, "candidate_element_type": right.data_type.name,
+            "baseline_quantization_present": left.quantization.is_quantized,
+            "candidate_quantization_present": right.quantization.is_quantized,
+            "baseline_scale_count": len(left.quantization.scales), "candidate_scale_count": len(right.quantization.scales),
+            "baseline_zero_point_count": len(left.quantization.zero_points), "candidate_zero_point_count": len(right.quantization.zero_points),
+            "baseline_quantized_dimension": left.quantization.quantized_dimension,
+            "candidate_quantized_dimension": right.quantization.quantized_dimension,
+            "baseline_per_channel": len(left.quantization.scales) > 1,
+            "candidate_per_channel": len(right.quantization.scales) > 1,
+            "logical_bytes_delta": right_allocation.logical_bytes - left_allocation.logical_bytes,
+            "aligned_bytes_delta": right_allocation.aligned_bytes - left_allocation.aligned_bytes,
+        })
+    baseline_path = Path(baseline.model_path)
+    candidate_path = Path(candidate.model_path)
+    baseline_size = baseline_path.stat().st_size if baseline_path.is_file() else None
+    candidate_size = candidate_path.stat().st_size if candidate_path.is_file() else None
+    return (
+        ("model_file_size_bytes", MetricDelta.calculate(baseline_size, candidate_size).to_dict()),
+        ("planned_arena_head_bytes", MetricDelta.calculate(baseline.explanation.summary.planned_arena_head_bytes, candidate.explanation.summary.planned_arena_head_bytes).to_dict()),
+        ("tensor_changes", changes),
+        ("warnings", ["accuracy is not evaluated", "calibration correctness is not proven", "smaller logical tensors may not reduce aligned planned head proportionally"]),
+    )
+
+
 def compare_models(baseline: ComparisonInput, candidate: ComparisonInput) -> ModelComparison:
     baseline_metrics, candidate_metrics = _metrics(baseline.explanation), _metrics(candidate.explanation)
     metric_deltas = tuple(
@@ -425,7 +471,7 @@ def compare_models(baseline: ComparisonInput, candidate: ComparisonInput) -> Mod
     return ModelComparison(
         baseline.model_path, candidate.model_path, status, regression, metric_deltas,
         matches, tensor_deltas, _peak_comparison(baseline.explanation, candidate.explanation, matches),
-        operators, guidance, budget_comparison,
+        operators, guidance, _quantization_comparison(baseline, candidate, matches), budget_comparison,
     )
 
 
@@ -481,6 +527,10 @@ def render_comparison_text(comparison: ModelComparison, *, details: bool = False
     if comparison.budget_comparison is not None:
         budget = dict(comparison.budget_comparison)
         lines.extend(["", "Arena-head budget comparison", f"  Baseline: {budget['baseline_status']}", f"  Candidate: {budget['candidate_status']}", f"  Status change: {budget['status_change']}"])
+    quantization = dict(comparison.quantization_comparison)
+    if quantization["tensor_changes"]:
+        lines.extend(["", "Quantization comparison", f"  Changed matched tensors: {len(quantization['tensor_changes'])}"])
+        lines.extend(f"  Warning: {item}." for item in quantization["warnings"])
     lines.extend([
         "", "Comparison covers planned arena head only.",
         "Tensor matching is deterministic but does not prove semantic equivalence.",

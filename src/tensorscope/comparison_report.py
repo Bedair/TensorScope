@@ -25,6 +25,7 @@ def render_comparison_html(comparison: ModelComparison, *, tool_version: str) ->
     ) or '<tr><td colspan="6">No runtime tensor changes</td></tr>'
     operator = dict(comparison.operator_comparison)
     guidance = dict(comparison.guidance_comparison)
+    quantization = dict(comparison.quantization_comparison)
     peak = dict(comparison.peak_comparison)
     reasons = "".join(f"<li>{_text(item)}</li>" for item in comparison.regression.reasons) or "<li>No deterministic regression rule was triggered.</li>"
     budget = ""
@@ -61,6 +62,7 @@ svg {{ width:100%;height:auto }} .bar-label {{ fill:var(--ink);font-size:14px }}
 <section><h2>Tensor changes</h2><div class="table"><table><thead><tr><th>Status</th><th>Baseline</th><th>Candidate</th><th>Match</th><th>Aligned delta</th><th>Impact</th></tr></thead><tbody>{tensor_rows}</tbody></table></div><p>Tensor matching is deterministic but does not prove semantic equivalence.</p></section>
 <section><h2>Operator comparison</h2><p>Added name counts: {_text(operator['added_name_counts'])}</p><p>Removed name counts: {_text(operator['removed_name_counts'])}</p><p>Operator-name sequences equal: {_text(operator['sequences_equal'])}</p></section>
 <section><h2>Guidance comparison</h2><p>Introduced categories: {_text(guidance['introduced_categories'])}</p><p>Resolved categories: {_text(guidance['resolved_categories'])}</p><p>Severity changes: {_text(guidance['severity_changes'])}</p></section>
+<section><h2>Quantization comparison</h2><p>Changed tensors: {_text(len(quantization['tensor_changes']))}</p><p>{_text('; '.join(quantization['warnings']))}</p></section>
 {budget}
 <section><h2>Regression assessment</h2><ul>{reasons}</ul></section>
 <section id="limitations"><h2>Limitations</h2><ul><li>Comparison covers planned arena head only.</li><li>Tensor matching does not establish semantic equivalence.</li><li>Model accuracy, operator support, and graph semantics must be validated separately.</li><li>Static arena tail and complete arena total are not compared.</li><li>Budget results do not establish complete MCU or firmware memory fit.</li></ul></section>
