@@ -8,6 +8,7 @@ import tempfile
 
 from tensorscope.explain import MemoryExplanation, TensorExplanation
 from tensorscope.memory_budget import ArenaHeadBudgetResult
+from tensorscope.recommendations import MemoryRiskAssessment
 
 
 class HTMLReportError(OSError):
@@ -294,6 +295,7 @@ def render_html_report(
     tool_version: str,
     generated_at: datetime | None = None,
     budget: ArenaHeadBudgetResult | None = None,
+    guidance: MemoryRiskAssessment | None = None,
 ) -> str:
     """Render one deterministic, dependency-free HTML analysis report."""
 
@@ -332,6 +334,7 @@ def render_html_report(
         for scope in explanation.scopes
     )
     budget_section = _budget_section(budget) if budget is not None else ""
+    guidance_section = _guidance_section(guidance) if guidance is not None else ""
 
     return f"""<!doctype html>
 <html lang="en">
@@ -349,6 +352,7 @@ h1 {{ margin:0 0 4px; font-size:28px; }} h2 {{ margin:30px 0 12px; font-size:20p
 .notice {{ margin:20px 0; padding:14px 16px; border-left:4px solid var(--accent); background:#edf2ff; }}
 .notice p {{ margin:3px 0; }}
 .budget-status {{ display:inline-block; padding:4px 9px; border:2px solid currentColor; border-radius:4px; font-weight:750; }}
+.guidance-item {{ margin:12px 0; padding:13px; background:var(--panel); border-radius:6px; }} .guidance-item h3 {{ margin:0 0 5px; }}
 .cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }}
 .card,section {{ background:var(--paper); border:1px solid var(--line); border-radius:8px; }}
 .card {{ padding:15px; }} .card .label {{ color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }}
@@ -392,6 +396,7 @@ footer {{ margin-top:24px; color:var(--muted); font-size:12px; }}
 <div class="card"><span class="label">Complete arena total</span><span class="value">{_bytes(total.get('bytes'))}</span><div class="tags"><span class="tag">scope: {_text(total.get('scope'))}</span><span class="tag">confidence: {_text(total.get('confidence'))}</span><span class="tag">validation: {_text(total.get('validation_state'))}</span></div></div>
 </div>
 {budget_section}
+{guidance_section}
 <section><h2>Report metadata</h2><dl class="metrics">
 <div><dt>Model filename</dt><dd>{_text(model_filename)}</dd></div><div><dt>Model path</dt><dd>{_text(model_path)}</dd></div><div><dt>TFLite schema version</dt><dd>{_text(schema_version if schema_version is not None else 'Unavailable')}</dd></div><div><dt>Generated at</dt><dd>{_text(generated_timestamp)}</dd></div><div><dt>TensorScope version</dt><dd>{_text(tool_version)}</dd></div><div><dt>Analysis scope</dt><dd>Primary subgraph · planned arena head only</dd></div>
 </dl></section>
@@ -460,6 +465,54 @@ def _budget_section(budget: ArenaHeadBudgetResult) -> str:
         "</dl>"
         "<p><strong>This check covers planned arena head only.</strong></p>"
         "<p>This is not a complete MCU or firmware memory-fit conclusion.</p>"
+        "</section>"
+    )
+
+
+def _guidance_section(guidance: MemoryRiskAssessment) -> str:
+    recommendations = {item.recommendation_id: item for item in guidance.recommendations}
+    rendered: list[str] = []
+    for index, finding in enumerate(guidance.findings, start=1):
+        tensor_ids = ", ".join(str(item) for item in finding.affected_tensor_ids) or "None"
+        operator_ids = ", ".join(str(item) for item in finding.affected_operator_ids) or "None"
+        evidence = "".join(
+            f"<div><dt>{_text(key.replace('_', ' ').title())}</dt><dd>{_text(value if value is not None else 'Not available')}</dd></div>"
+            for key, value in finding.evidence
+        )
+        linked = "".join(
+            "<div class=\"guidance-item\">"
+            f"<strong>Recommendation {_text(recommendation.recommendation_id)}</strong> "
+            f"[{_text(recommendation.priority)}, {_text(recommendation.confidence)}]"
+            f"<p>{_text(recommendation.action)} {_text(recommendation.expected_effect)}</p>"
+            f"<p class=\"muted\">Caveat: {_text('; '.join(recommendation.caveats))}</p></div>"
+            for recommendation_id in finding.recommendation_ids
+            for recommendation in (recommendations[recommendation_id],)
+        )
+        rendered.append(
+            '<article class="guidance-item">'
+            f"<h3>{index}. {_text(finding.title)}</h3>"
+            f"<div class=\"tags\"><span class=\"tag\">severity: {_text(finding.severity)}</span>"
+            f"<span class=\"tag\">confidence: {_text(finding.confidence)}</span>"
+            f"<span class=\"tag\">category: {_text(finding.category)}</span></div>"
+            f"<p>{_text(finding.explanation)}</p>"
+            f"<p class=\"muted\">Affected tensors: {_text(tensor_ids)} · Affected operators: {_text(operator_ids)}</p>"
+            f"<dl class=\"metrics\">{evidence}</dl>{linked}</article>"
+        )
+    if not rendered:
+        rendered.append('<p class="muted">No material model-level arena-head optimization finding was detected by the current rules.</p>')
+    summary = guidance.to_dict()["summary"]
+    assert isinstance(summary, dict)
+    return (
+        '<section id="memory-guidance"><h2>Memory risk and optimization guidance</h2>'
+        f'<p><span class="budget-status">Overall risk: {_text(guidance.overall_risk.upper())}</span></p>'
+        '<div class="cards">'
+        f'<div class="card"><span class="label">Findings</span><span class="value">{summary["finding_count"]}</span></div>'
+        f'<div class="card"><span class="label">Recommendations</span><span class="value">{summary["recommendation_count"]}</span></div>'
+        f'<div class="card"><span class="label">High or critical</span><span class="value">{summary["high_or_critical_count"]}</span></div></div>'
+        + "".join(rendered)
+        + "<p><strong>Recommendations are evidence-based suggestions, not guaranteed byte savings.</strong></p>"
+        "<p>This guidance covers planned arena head only.</p>"
+        "<p>Model accuracy, operator support, and graph semantics must be revalidated after any model change.</p>"
         "</section>"
     )
 

@@ -9,6 +9,7 @@ from typing import Sequence
 from tensorscope import __version__
 from tensorscope.explain import MemoryExplanation, explain_primary_subgraph_memory
 from tensorscope.graph import (
+    GraphModel,
     calculate_graph_lifetimes,
     calculate_graph_memory_plan,
     convert_tflite_model,
@@ -28,6 +29,11 @@ from tensorscope.memory_budget import (
 )
 from tensorscope.oracle import TFLMOracleError
 from tensorscope.oracle_validation import validate_model_against_tflm
+from tensorscope.recommendations import (
+    MemoryRiskAssessment,
+    assess_memory_risk,
+    render_memory_guidance,
+)
 from tensorscope.results import MemoryFigure
 from tensorscope.text_report import render_memory_explanation
 from tensorscope.tflite.model_loader import TFLiteModelError, load_tflite_model
@@ -70,7 +76,7 @@ def _calculate_analysis(
     model_path: str | Path,
     *,
     top_tensors: int,
-) -> tuple[dict[str, object], MemoryExplanation]:
+) -> tuple[dict[str, object], MemoryExplanation, GraphModel]:
     path = Path(model_path).expanduser().resolve()
     graph = convert_tflite_model(load_tflite_model(path))
     lifetimes = calculate_graph_lifetimes(graph)
@@ -102,7 +108,7 @@ def _calculate_analysis(
         "arena_total": total.to_dict(),
         "analysis": explanation.to_dict(),
     }
-    return result, explanation
+    return result, explanation, graph
 
 
 def analyze_model(
@@ -110,7 +116,8 @@ def analyze_model(
     *,
     top_tensors: int = 10,
 ) -> dict[str, object]:
-    result, _ = _calculate_analysis(model_path, top_tensors=top_tensors)
+    result, explanation, graph = _calculate_analysis(model_path, top_tensors=top_tensors)
+    result["memory_guidance"] = assess_memory_risk(graph, explanation).to_dict()
     return result
 
 
@@ -169,6 +176,7 @@ def _render_text(
     details: bool = False,
     include_ascii: bool = True,
     budget: ArenaHeadBudgetResult | None = None,
+    guidance: MemoryRiskAssessment | None = None,
 ) -> str:
     lines = [f"Model: {result['model_path']}"]
     validation = result.get("validation")
@@ -230,6 +238,8 @@ def _render_text(
         )
     if budget is not None:
         lines.extend(["", _render_budget_text(budget)])
+    if guidance is not None:
+        lines.extend(["", render_memory_guidance(guidance, details=details)])
     return "\n".join(lines)
 
 
@@ -354,6 +364,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_SUCCESS
     explanation: MemoryExplanation | None = None
     budget: ArenaHeadBudgetResult | None = None
+    guidance: MemoryRiskAssessment | None = None
+    graph: GraphModel | None = None
     try:
         if arguments.command == "analyze":
             if arguments.model is None:
@@ -362,7 +374,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise ValueError("--reserve may be used only with --mcu-profile")
             if arguments.fail_on_budget_exceeded and arguments.arena_head_budget is None and arguments.mcu_profile is None:
                 raise ValueError("--fail-on-budget-exceeded requires --arena-head-budget or --mcu-profile")
-            result, explanation = _calculate_analysis(
+            result, explanation, graph = _calculate_analysis(
                 arguments.model,
                 top_tensors=arguments.top_tensors,
             )
@@ -375,6 +387,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 budget = evaluate_profile_budget(planned, get_mcu_profile(arguments.mcu_profile), reserve)
             if budget is not None:
                 result["arena_head_budget"] = budget.to_dict()
+            guidance = assess_memory_risk(graph, explanation, budget=budget)
+            result["memory_guidance"] = guidance.to_dict()
             exit_code = EXIT_SUCCESS
         else:
             result, exact_match = validate_model(arguments.model)
@@ -386,6 +400,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 explanation,
                 tool_version=__version__,
                 budget=budget,
+                guidance=guidance,
             )
             report_path = write_html_report(arguments.html, html)
         else:
@@ -427,6 +442,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 details=getattr(arguments, "details", False),
                 include_ascii=getattr(arguments, "ascii", False),
                 budget=budget,
+                guidance=guidance,
             )
         )
     if budget is not None and arguments.fail_on_budget_exceeded and budget.status == "exceeds":
