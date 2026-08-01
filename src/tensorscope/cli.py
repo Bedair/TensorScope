@@ -147,6 +147,7 @@ def validate_model(model_path: str | Path) -> tuple[dict[str, object], bool]:
             "delta_bytes": validation.head_delta,
             "tflm_revision": TFLM_REVISION,
         },
+        "oracle_arena_observation": validation.oracle.observation.to_dict(),
     }
     return result, validation.exact_match
 
@@ -196,6 +197,29 @@ def _render_text(
             "Complete arena total is not yet statically estimated.",
         ]
     )
+    observation = result.get("oracle_arena_observation")
+    if isinstance(observation, dict):
+        def observed_bytes(key: str) -> str:
+            value = observation.get(key)
+            return "not available" if value is None else f"{value:,} bytes"
+
+        lines.extend(
+            [
+                "",
+                "TFLM oracle memory observation",
+                f"Observation source: {observation['source']}",
+                f"Allocator capacity: {observed_bytes('capacity_bytes')}",
+                f"Observed arena used: {observed_bytes('used_bytes')}",
+                f"Observed arena head: {observed_bytes('head_bytes')}",
+                f"Observed arena tail: {observed_bytes('tail_bytes')}",
+                f"Temporary bytes: {observed_bytes('temporary_bytes')}",
+                f"Allocator remaining: {observed_bytes('remaining_bytes')}",
+                f"Allocator alignment: {observed_bytes('alignment_bytes')}",
+                f"Observed TFLM revision: {observation.get('tflm_revision') or 'not available'}",
+                "Arena tail and complete arena usage are oracle observations, not static TensorScope estimates.",
+                "These values describe the pinned host-side TFLM allocator run and are not a complete MCU or firmware memory-fit guarantee.",
+            ]
+        )
     if explanation is not None:
         lines.append(
             render_memory_explanation(

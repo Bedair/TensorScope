@@ -14,6 +14,8 @@ namespace {
 constexpr std::size_t kTensorArenaSize = 2 * 1024 * 1024;
 constexpr std::size_t kArenaAlignment = 16;
 constexpr int kResolverCapacity = 14;
+constexpr const char* kTflmRevision =
+    "b89fb3e06e59d2f6af67e758242243da599bfedf";
 
 alignas(kArenaAlignment)
 std::uint8_t tensor_arena[kTensorArenaSize];
@@ -287,6 +289,17 @@ int main(
           : static_cast<unsigned int>(
                 operator_codes->size());
 
+  const auto* arena_allocator = interpreter
+      .GetMicroAllocator()
+      .GetSimpleMemoryAllocator();
+  const std::size_t arena_head_bytes =
+      arena_allocator->GetNonPersistentUsedBytes();
+  const std::size_t arena_tail_bytes =
+      arena_allocator->GetPersistentUsedBytes();
+  const std::size_t arena_used_bytes = arena_allocator->GetUsedBytes();
+  const std::size_t arena_remaining_bytes =
+      kTensorArenaSize - arena_used_bytes;
+
   std::printf("TENSOR_SCOPE_ORACLE_BEGIN\n");
   std::printf("model_path=%s\n", model_path);
   std::printf(
@@ -306,8 +319,15 @@ int main(
       kTensorArenaSize);
   std::printf(
       "arena_used=%zu\n",
-      interpreter.arena_used_bytes());
+      arena_used_bytes);
+  std::printf("arena_head_bytes=%zu\n", arena_head_bytes);
+  std::printf("arena_tail_bytes=%zu\n", arena_tail_bytes);
+  std::printf("arena_temporary_bytes=unavailable\n");
+  std::printf("arena_remaining_bytes=%zu\n", arena_remaining_bytes);
+  std::printf("allocator_alignment_bytes=%zu\n", kArenaAlignment);
+  std::printf("tflm_revision=%s\n", kTflmRevision);
   std::printf("TENSOR_SCOPE_ORACLE_END\n");
+  std::fflush(stdout);
 
   interpreter
       .GetMicroAllocator()

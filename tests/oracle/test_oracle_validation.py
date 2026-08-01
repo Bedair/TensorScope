@@ -94,3 +94,25 @@ def test_validation_matrix_is_deterministic_and_exact() -> None:
         assert result.tflm_head == row["tflm_head"]
         assert result.head_delta == row["delta_bytes"] == 0
         assert row["validation_state"] == "exact_match"
+
+
+def test_oracle_observation_matrix_is_deterministic_and_accounted() -> None:
+    matrix_path = REPOSITORY_ROOT / "tests" / "model_corpus" / "oracle_observation_matrix.json"
+    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+    assert matrix["source"] == "tflm_oracle"
+    assert matrix["observation_scope"] == "host_allocator_run"
+    assert [row["filename"] for row in matrix["models"]] == sorted(
+        row["filename"] for row in matrix["models"]
+    )
+    for row in matrix["models"]:
+        result = validate_model_against_tflm(CORPUS_ROOT / row["filename"])
+        observation = result.oracle.observation
+        assert result.exact_match
+        assert observation.head_bytes == row["observed_head_bytes"]
+        assert observation.tail_bytes == row["observed_tail_bytes"]
+        assert observation.used_bytes == row["observed_used_bytes"]
+        assert observation.capacity_bytes == row["capacity_bytes"]
+        assert observation.remaining_bytes == row["remaining_bytes"]
+        assert observation.used_bytes <= observation.capacity_bytes
+        assert observation.remaining_bytes == observation.capacity_bytes - observation.used_bytes
+        assert observation.tflm_revision == row["tflm_revision"] == matrix["tflm_revision"]

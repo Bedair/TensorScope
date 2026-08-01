@@ -66,6 +66,7 @@ class OracleValidationResult:
             "exact_match": self.exact_match,
             "tflm_arena_used": self.oracle.arena_used,
             "tflm_arena_tail": self.oracle.arena_tail,
+            "oracle_arena_observation": self.oracle.observation.to_dict(),
         }
 
 

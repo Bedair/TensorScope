@@ -373,6 +373,15 @@ def test_validate_reports_explicit_head_match() -> None:
     assert result["arena_total"]["confidence"] == "not_estimated"
     assert result["arena_total"]["source"] is None
     assert result["arena_total"]["validation_state"] == "not_validated"
+    observation = result["oracle_arena_observation"]
+    assert observation["source"] == "tflm_oracle"
+    assert observation["observation_scope"] == "host_allocator_run"
+    assert observation["head_bytes"] == 128
+    assert observation["tail_bytes"] == 1296
+    assert observation["used_bytes"] == 1424
+    assert observation["capacity_bytes"] == 2097152
+    assert observation["remaining_bytes"] == 2095728
+    assert observation["temporary_bytes"] is None
 
 
 @pytest.mark.skipif(
@@ -399,6 +408,12 @@ def test_validate_json_reports_exact_head_match(
     assert result["arena_head"]["validation_state"] == "exact_match"
     assert result["validation"]["state"] == "exact_match"
     assert result["validation"]["delta_bytes"] == 0
+    assert result["arena_tail"]["bytes"] is None
+    assert result["arena_total"]["bytes"] is None
+    observation = result["oracle_arena_observation"]
+    assert observation["source"] == "tflm_oracle"
+    assert observation["head_bytes"] == result["validation"]["tflm_oracle_bytes"]
+    assert observation["tail_bytes"] == 1296
 
 
 @pytest.mark.skipif(
@@ -423,3 +438,12 @@ def test_validate_human_label_is_not_generic(
     assert "Arena tail is not yet statically estimated." in output
     assert "Complete arena total is not yet statically estimated." in output
     assert f"Validated TFLM revision: {TFLM_REVISION}" in output
+    assert "TFLM oracle memory observation" in output
+    assert "Observation source: tflm_oracle" in output
+    assert "Observed arena used: 1,424 bytes" in output
+    assert "Observed arena head: 128 bytes" in output
+    assert "Observed arena tail: 1,296 bytes" in output
+    assert "Temporary bytes: not available" in output
+    assert "Arena tail and complete arena usage are oracle observations, not static TensorScope estimates." in output
+    assert "pinned host-side TFLM allocator run" in output
+    assert "tail validation" not in output.lower()
