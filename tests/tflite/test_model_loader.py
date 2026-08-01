@@ -28,6 +28,8 @@ CORPUS_ROOT = (
         "simple_add_model.tflite",
         "conv0.tflite",
         "micro_speech_quantized.tflite",
+        "operator_chain_float.tflite",
+        "quantize_dequantize_int8.tflite",
     ],
 )
 def test_loads_corpus_models(

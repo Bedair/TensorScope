@@ -13,7 +13,7 @@ namespace {
 
 constexpr std::size_t kTensorArenaSize = 2 * 1024 * 1024;
 constexpr std::size_t kArenaAlignment = 16;
-constexpr int kResolverCapacity = 8;
+constexpr int kResolverCapacity = 14;
 
 alignas(kArenaAlignment)
 std::uint8_t tensor_arena[kTensorArenaSize];
@@ -135,7 +135,60 @@ TfLiteStatus RegisterCorpusOperators(
     return kTfLiteError;
   }
 
+#define REGISTER_TARGET(method, name)                                      \
+  if (resolver->method() != kTfLiteOk) {                                   \
+    std::fprintf(stderr, "Error: failed to register " name ".\n");       \
+    return kTfLiteError;                                                    \
+  }
+  REGISTER_TARGET(AddMul, "MUL")
+  REGISTER_TARGET(AddMaxPool2D, "MAX_POOL_2D")
+  REGISTER_TARGET(AddAveragePool2D, "AVERAGE_POOL_2D")
+  REGISTER_TARGET(AddRelu, "RELU")
+  REGISTER_TARGET(AddRelu6, "RELU6")
+  REGISTER_TARGET(AddLogistic, "LOGISTIC")
+  REGISTER_TARGET(AddQuantize, "QUANTIZE")
+  REGISTER_TARGET(AddDequantize, "DEQUANTIZE")
+#undef REGISTER_TARGET
+
   return kTfLiteOk;
+}
+
+bool IsRegisteredBuiltin(tflite::BuiltinOperator code) {
+  switch (code) {
+    case tflite::BuiltinOperator_ADD: case tflite::BuiltinOperator_MUL:
+    case tflite::BuiltinOperator_RESHAPE: case tflite::BuiltinOperator_SOFTMAX:
+    case tflite::BuiltinOperator_CONV_2D: case tflite::BuiltinOperator_DEPTHWISE_CONV_2D:
+    case tflite::BuiltinOperator_MAX_POOL_2D: case tflite::BuiltinOperator_AVERAGE_POOL_2D:
+    case tflite::BuiltinOperator_FULLY_CONNECTED: case tflite::BuiltinOperator_RELU:
+    case tflite::BuiltinOperator_RELU6: case tflite::BuiltinOperator_LOGISTIC:
+    case tflite::BuiltinOperator_QUANTIZE: case tflite::BuiltinOperator_DEQUANTIZE:
+      return true;
+    default: return false;
+  }
+}
+
+bool ValidateRegisteredOperators(const tflite::Model* model, const char* model_path) {
+  const auto* codes = model->operator_codes();
+  const auto* subgraphs = model->subgraphs();
+  if (codes == nullptr || subgraphs == nullptr) return false;
+  for (unsigned int sg = 0; sg < subgraphs->size(); ++sg) {
+    const auto* operators = subgraphs->Get(sg)->operators();
+    if (operators == nullptr) continue;
+    for (unsigned int index = 0; index < operators->size(); ++index) {
+      const auto* op = operators->Get(index);
+      if (op->opcode_index() >= codes->size()) continue;
+      const auto* code = codes->Get(op->opcode_index());
+      const auto builtin = code->builtin_code();
+      if (!IsRegisteredBuiltin(builtin)) {
+        const char* custom = code->custom_code() == nullptr ? "" : code->custom_code()->c_str();
+        std::fprintf(stderr,
+                     "Error: unsupported operator at index %u in model %s: builtin opcode %d, custom code '%s'.\n",
+                     index, model_path, static_cast<int>(builtin), custom);
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 }  // namespace
@@ -188,6 +241,10 @@ int main(
         TFLITE_SCHEMA_VERSION);
 
     return 5;
+  }
+
+  if (!ValidateRegisteredOperators(model, model_path)) {
+    return 6;
   }
 
   ResetTensorArena();

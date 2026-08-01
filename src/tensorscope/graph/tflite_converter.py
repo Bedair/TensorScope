@@ -236,7 +236,7 @@ def _effective_builtin_code(
 def _operator_name(
     loaded_model: LoadedModel,
     opcode_index: int,
-) -> tuple[str, int]:
+) -> tuple[str, int, int, str]:
     if opcode_index < 0:
         raise GraphModelError(
             "Operator-code index must be non-negative: "
@@ -276,7 +276,7 @@ def _operator_name(
 
     version = int(operator_code.Version())
 
-    return name, version
+    return name, version, builtin_code, custom_code
 
 
 def _convert_operator(
@@ -288,7 +288,7 @@ def _convert_operator(
         schema_operator.OpcodeIndex()
     )
 
-    name, version = _operator_name(
+    name, version, builtin_code, custom_code = _operator_name(
         loaded_model,
         opcode_index,
     )
@@ -319,6 +319,8 @@ def _convert_operator(
         inputs=inputs,
         outputs=outputs,
         intermediates=intermediates,
+        builtin_code=builtin_code,
+        custom_code=custom_code,
     )
 
 

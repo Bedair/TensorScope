@@ -1,8 +1,38 @@
 {
   "schema_version": 1,
   "description": "TensorScope MVP model validation corpus.",
-  "model_count": 5,
+  "model_count": 7,
   "models": [
+    {
+      "name": "operator_chain_float.tflite",
+      "path": "tests/model_corpus/models/operator_chain_float.tflite",
+      "size_bytes": 2272,
+      "sha256": "fa615404c8521c227802e54c0380609a10b919a6ba94dc3a17979019b624f3dd",
+      "description": "Reproducible float32 linear chain covering convolution, pooling, activations, reshape, fully connected, softmax, multiply, and add.",
+      "source": "scripts/generate_operator_coverage_models.py",
+      "category": "operator-coverage",
+      "quantization": "float32",
+      "expected_operators": ["CONV_2D", "DEPTHWISE_CONV_2D", "MAX_POOL_2D", "AVERAGE_POOL_2D", "RESHAPE", "FULLY_CONNECTED", "RELU", "RELU6", "LOGISTIC", "SOFTMAX", "MUL", "ADD"],
+      "tensor_types": ["FLOAT32", "INT32"],
+      "expected_tensorscope_head": 128,
+      "expected_tflm_head": 128,
+      "expected_use": ["new explicit operator coverage", "mixed runtime and constant tensors", "report integration"]
+    },
+    {
+      "name": "quantize_dequantize_int8.tflite",
+      "path": "tests/model_corpus/models/quantize_dequantize_int8.tflite",
+      "size_bytes": 608,
+      "sha256": "95e672f3d48b3b46b5935b5a2b0f87b4c3a1c1e407640ef09ce6694bfa01b2ef",
+      "description": "Reproducible float32 to int8 quantize/dequantize chain.",
+      "source": "scripts/generate_operator_coverage_models.py",
+      "category": "operator-coverage",
+      "quantization": "int8 asymmetric per-tensor (scale 0.125, zero point -3)",
+      "expected_operators": ["QUANTIZE", "DEQUANTIZE"],
+      "tensor_types": ["FLOAT32", "INT8"],
+      "expected_tensorscope_head": 48,
+      "expected_tflm_head": 48,
+      "expected_use": ["mixed float and quantized runtime tensors", "conversion operator coverage"]
+    },
     {
       "name": "conv0.tflite",
       "path": "tests/model_corpus/models/conv0.tflite",

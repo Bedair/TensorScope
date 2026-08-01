@@ -193,6 +193,8 @@ def test_inconsistent_head_and_tail_are_rejected() -> None:
             1552,
             7520,
         ),
+        ("operator_chain_float.tflite", 128, 2704, 2832),
+        ("quantize_dequantize_int8.tflite", 48, 880, 928),
     ],
 )
 def test_oracle_matches_recorded_corpus_results(

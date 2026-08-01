@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "scope": "planned_arena_head",
+  "tflm_revision": "b89fb3e06e59d2f6af67e758242243da599bfedf",
+  "models": [
+    {"filename":"conv0.tflite","operators":["CONV_2D"],"tensor_types":["INT8","INT16","INT64"],"tensorscope_head":10432,"tflm_head":10432,"delta_bytes":0,"validation_state":"exact_match"},
+    {"filename":"hello_world_float.tflite","operators":["FULLY_CONNECTED"],"tensor_types":["FLOAT32"],"tensorscope_head":128,"tflm_head":128,"delta_bytes":0,"validation_state":"exact_match"},
+    {"filename":"hello_world_int8.tflite","operators":["FULLY_CONNECTED"],"tensor_types":["INT8","INT32"],"tensorscope_head":32,"tflm_head":32,"delta_bytes":0,"validation_state":"exact_match"},
+    {"filename":"micro_speech_quantized.tflite","operators":["DEPTHWISE_CONV_2D","FULLY_CONNECTED","RESHAPE","SOFTMAX"],"tensor_types":["INT8","INT32"],"tensorscope_head":5968,"tflm_head":5968,"delta_bytes":0,"validation_state":"exact_match"},
+    {"filename":"operator_chain_float.tflite","operators":["ADD","AVERAGE_POOL_2D","CONV_2D","DEPTHWISE_CONV_2D","FULLY_CONNECTED","LOGISTIC","MAX_POOL_2D","MUL","RELU","RELU6","RESHAPE","SOFTMAX"],"tensor_types":["FLOAT32","INT32"],"tensorscope_head":128,"tflm_head":128,"delta_bytes":0,"validation_state":"exact_match"},
+    {"filename":"quantize_dequantize_int8.tflite","operators":["DEQUANTIZE","QUANTIZE"],"tensor_types":["FLOAT32","INT8"],"tensorscope_head":48,"tflm_head":48,"delta_bytes":0,"validation_state":"exact_match"},
+    {"filename":"simple_add_model.tflite","operators":["ADD"],"tensor_types":["INT8"],"tensorscope_head":49152,"tflm_head":49152,"delta_bytes":0,"validation_state":"exact_match"}
+  ]
+}
