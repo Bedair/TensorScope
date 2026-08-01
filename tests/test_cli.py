@@ -10,6 +10,7 @@ import pytest
 
 from tensorscope.cli import (
     EXIT_INPUT_ERROR,
+    EXIT_REPORT_ERROR,
     EXIT_SUCCESS,
     TFLM_REVISION,
     analyze_model,
@@ -95,6 +96,8 @@ def test_analyze_json_is_stable(capsys: pytest.CaptureFixture[str]) -> None:
     result = json.loads(output.out)
     assert output.err == ""
     assert result["command"] == "analyze"
+    assert result["model"]["filename"] == "hello_world_float.tflite"
+    assert result["model"]["schema_version"] == 3
     assert result["arena_head"]["scope"] == "arena_head"
     assert result["arena_head"]["confidence"] == "exact"
     assert result["arena_head"]["source"] == "static_analysis"
@@ -159,6 +162,54 @@ def test_top_tensors_option_controls_json_ranking(
 
     result = json.loads(capsys.readouterr().out)
     assert len(result["analysis"]["largest_tensors"]) == 2
+
+
+def test_analyze_html_writes_self_contained_report(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    destination = tmp_path / "analysis.html"
+
+    assert main(["analyze", str(MODEL), "--html", str(destination)]) == EXIT_SUCCESS
+
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert output.out.strip() == f"HTML report written: {destination.resolve()}"
+    report = destination.read_text(encoding="utf-8")
+    assert report.startswith("<!doctype html>")
+    assert "Planned arena head</dt><dd>128 bytes" in report
+    assert "Arena tail is not statically estimated." in report
+
+
+def test_analyze_html_write_error_has_stable_exit_code(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    blocked_parent = tmp_path / "blocked"
+    blocked_parent.write_text("not a directory", encoding="utf-8")
+    destination = blocked_parent / "analysis.html"
+
+    assert (
+        main(["analyze", str(MODEL), "--html", str(destination)])
+        == EXIT_REPORT_ERROR
+    )
+
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "Error (report_write_error):" in output.err
+
+
+def test_json_and_html_are_mutually_exclusive(tmp_path: Path) -> None:
+    completed = _run_package(
+        "analyze",
+        str(MODEL),
+        "--json",
+        "--html",
+        str(tmp_path / "analysis.html"),
+    )
+
+    assert completed.returncode == 2
+    assert "not allowed with argument --json" in completed.stderr
 
 
 def test_unsupported_input_has_stable_json_error(
