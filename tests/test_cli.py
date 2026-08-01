@@ -25,6 +25,7 @@ MODEL = (
     / "models"
     / "hello_world_float.tflite"
 )
+OPERATOR_CHAIN_MODEL = Path(__file__).parent / "model_corpus" / "models" / "operator_chain_float.tflite"
 REPOSITORY_ROOT = Path(__file__).parents[1]
 
 
@@ -63,6 +64,27 @@ def test_package_module_analyze_executes_successfully() -> None:
     assert completed.stderr == ""
     assert "Arena head: 128 bytes" in completed.stdout
     assert "Arena tail is not yet statically estimated." in completed.stdout
+
+
+def test_new_operator_model_supports_text_json_validation_and_html(tmp_path: Path) -> None:
+    text_result = _run_package("analyze", str(OPERATOR_CHAIN_MODEL))
+    assert text_result.returncode == EXIT_SUCCESS
+    assert "Arena head: 128 bytes" in text_result.stdout
+
+    json_result = _run_package("analyze", str(OPERATOR_CHAIN_MODEL), "--json")
+    assert json_result.returncode == EXIT_SUCCESS
+    assert json.loads(json_result.stdout)["analysis"]["summary"]["planned_arena_head_bytes"] == 128
+
+    validation = _run_package("validate", str(OPERATOR_CHAIN_MODEL))
+    assert validation.returncode == EXIT_SUCCESS
+    assert "Arena-head validation: EXACT MATCH" in validation.stdout
+
+    destination = tmp_path / "operator-chain.html"
+    html_result = _run_package("analyze", str(OPERATOR_CHAIN_MODEL), "--html", str(destination))
+    assert html_result.returncode == EXIT_SUCCESS
+    report = destination.read_text(encoding="utf-8")
+    assert report.startswith("<!doctype html>")
+    assert "http://" not in report.lower() and "https://" not in report.lower()
 
 
 def test_analyze_result_is_confidence_aware() -> None:

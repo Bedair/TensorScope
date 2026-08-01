@@ -253,6 +253,8 @@ def test_write_report_failure_is_clear(tmp_path: Path) -> None:
         "hello_world_float.tflite",
         "conv0.tflite",
         "micro_speech_quantized.tflite",
+        "operator_chain_float.tflite",
+        "quantize_dequantize_int8.tflite",
     ],
 )
 def test_corpus_reports_render(model_name: str) -> None:

@@ -54,6 +54,8 @@ run-corpus: $(TARGET)
 	./$(TARGET) ../../tests/model_corpus/models/simple_add_model.tflite
 	./$(TARGET) ../../tests/model_corpus/models/conv0.tflite
 	./$(TARGET) ../../tests/model_corpus/models/micro_speech_quantized.tflite
+	./$(TARGET) ../../tests/model_corpus/models/operator_chain_float.tflite
+	./$(TARGET) ../../tests/model_corpus/models/quantize_dequantize_int8.tflite
 
 clean:
 	rm -rf build

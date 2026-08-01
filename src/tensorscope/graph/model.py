@@ -124,6 +124,8 @@ class Operator:
     inputs: tuple[TensorId, ...]
     outputs: tuple[TensorId, ...]
     intermediates: tuple[TensorId, ...] = ()
+    builtin_code: int | None = None
+    custom_code: str = ""
 
     def __post_init__(self) -> None:
         if self.id < 0:
@@ -140,6 +142,11 @@ class Operator:
         if self.version <= 0:
             raise GraphModelError(
                 f"Operator version must be positive: {self.version}"
+            )
+
+        if self.builtin_code is not None and self.builtin_code < 0:
+            raise GraphModelError(
+                f"Builtin operator code must be non-negative: {self.builtin_code}"
             )
 
 
