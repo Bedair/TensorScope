@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
+import re
 
 import pytest
 
 from tensorscope import __version__
 from tensorscope.cli import analyze_model
-from tensorscope.explain import explain_primary_subgraph_memory
+from tensorscope.explain import describe_reuse_blocker, explain_primary_subgraph_memory
 from tensorscope.graph import convert_tflite_model
 from tensorscope.html_report import (
     HTMLReportError,
@@ -89,7 +91,9 @@ def test_report_is_complete_self_contained_html() -> None:
     assert "http://" not in report.lower()
     assert "https://" not in report.lower()
     assert " src=" not in report.lower()
-    assert " href=" not in report.lower()
+    # Same-page anchors (reuse-blocker jump links) are self-contained; any
+    # href pointing anywhere else would not be.
+    assert re.search(r'\bhref="(?!#)', report.lower()) is None
 
 
 def test_report_states_scope_confidence_and_fit_limitations() -> None:
@@ -229,6 +233,106 @@ def test_main_svg_has_accessible_deterministic_tensor_rectangles() -> None:
     assert "Execution scope →" in report
     assert "Arena offset (bytes) →" in report
     assert "represent safe reuse" in report
+
+
+def test_reuse_handoffs_and_blocker_badges_use_shared_reasoning() -> None:
+    model = CORPUS / "hello_world_int8.tflite"
+    graph = convert_tflite_model(load_tflite_model(model))
+    explanation = explain_primary_subgraph_memory(graph)
+    report = render_html_report(
+        analyze_model(model), explanation, tool_version=__version__, generated_at=FIXED_TIME,
+    )
+
+    # Hand-derived in an earlier session: two safe hand-offs (0->8, 7->9),
+    # four blocked tensors (every runtime tensor in this model).
+    assert len(explanation.reuse) == 2
+    assert len(explanation.reuse_blockers) == 4
+
+    for blocker in explanation.reuse_blockers:
+        assert f'href="#reuse-blocker-{blocker.tensor_id}"' in report
+        assert f'id="reuse-blocker-{blocker.tensor_id}"' in report
+        # The chart tooltip/badge and the prose list below it render the
+        # identical sentence -- this is the "can't drift apart" guarantee.
+        assert escape(describe_reuse_blocker(blocker), quote=True) in report
+        assert report.count(escape(describe_reuse_blocker(blocker), quote=True)) >= 2
+
+    # Both reuse pairs sit in adjacent scope columns (hand-verified), so
+    # both render as the fixed-size chevron marker, not a dashed line.
+    assert report.count('class="reuse-handoff"') == 2
+    assert 'class="reuse-arrow"' not in report
+
+
+def test_wide_gap_reuse_renders_dashed_arrow_not_chevron() -> None:
+    # operator_chain_float's 13-scope chain genuinely frees and reuses slots
+    # scopes apart (tensor 0's slot at [0,1] isn't reused until tensor 8 at
+    # [4,5]) -- a real, not fabricated, wide-gap case.
+    model = CORPUS / "operator_chain_float.tflite"
+    graph = convert_tflite_model(load_tflite_model(model))
+    explanation = explain_primary_subgraph_memory(graph)
+    wide_gap_pairs = [r for r in explanation.reuse if r.second_lifetime[0] - r.first_lifetime[1] >= 2]
+    assert wide_gap_pairs
+
+    svg = render_packing_svg(explanation)
+
+    assert 'class="reuse-arrow"' in svg
+    assert 'marker-end="url(#reuse-arrowhead-marker)"' in svg
+
+
+def test_zero_reuse_model_renders_no_phantom_handoffs() -> None:
+    model = CORPUS / "simple_add_model.tflite"
+    graph = convert_tflite_model(load_tflite_model(model))
+    explanation = explain_primary_subgraph_memory(graph)
+    report = render_html_report(
+        analyze_model(model), explanation, tool_version=__version__, generated_at=FIXED_TIME,
+    )
+
+    # ADD needs both inputs and the output live at once: zero reuse, all
+    # three tensors mutually block each other.
+    assert explanation.reuse == ()
+    assert len(explanation.reuse_blockers) == 3
+    assert 'class="reuse-handoff"' not in report
+    assert 'class="reuse-arrow"' not in report
+    assert 'marker-end="url(#reuse-arrowhead-marker)"' not in report
+
+    for blocker in explanation.reuse_blockers:
+        assert f'href="#reuse-blocker-{blocker.tensor_id}"' in report
+        assert f'id="reuse-blocker-{blocker.tensor_id}"' in report
+        assert escape(describe_reuse_blocker(blocker), quote=True) in report
+
+
+def test_blocker_reasoning_is_identical_between_text_and_html_renderers() -> None:
+    from tensorscope.text_report import render_memory_explanation
+
+    model = CORPUS / "hello_world_int8.tflite"
+    graph = convert_tflite_model(load_tflite_model(model))
+    explanation = explain_primary_subgraph_memory(graph)
+
+    text = render_memory_explanation(explanation, details=True)
+    html_report = render_html_report(
+        analyze_model(model), explanation, tool_version=__version__, generated_at=FIXED_TIME,
+    )
+
+    assert explanation.reuse_blockers
+    for blocker in explanation.reuse_blockers:
+        reason = describe_reuse_blocker(blocker)
+        assert reason in text
+        assert escape(reason, quote=True) in html_report
+
+
+def test_unblocked_tensor_rectangle_is_not_a_jump_link() -> None:
+    # simple_add_model's every tensor is blocked; hello_world_int8 has none
+    # that are fully unblocked either (it's tiny). Assert the inverse
+    # instead: a model with no blockers renders no jump-link wrapper at all.
+    model = CORPUS / "hello_world_float.tflite"
+    graph = convert_tflite_model(load_tflite_model(model))
+    explanation = explain_primary_subgraph_memory(graph)
+    no_blockers = replace(explanation, reuse_blockers=())
+
+    svg = render_packing_svg(no_blockers)
+
+    assert 'class="blocked-link"' not in svg
+    assert 'class="blocker-badge"' not in svg
+    assert 'is-blocked' not in svg
 
 
 def test_model_content_is_html_escaped() -> None:

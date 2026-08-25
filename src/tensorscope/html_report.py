@@ -6,7 +6,13 @@ import os
 from pathlib import Path
 import tempfile
 
-from tensorscope.explain import MemoryExplanation, TensorExplanation
+from tensorscope.explain import (
+    MemoryExplanation,
+    ReuseBlocker,
+    ReuseRelationship,
+    TensorExplanation,
+    describe_reuse_blocker,
+)
 from tensorscope.memory_budget import ArenaHeadBudgetResult
 from tensorscope.recommendations import MemoryRiskAssessment
 
@@ -72,8 +78,25 @@ def _timestamp(value: datetime | None) -> str:
     return utc.isoformat().replace("+00:00", "Z")
 
 
+def _reuse_handoff_title(relationship: ReuseRelationship) -> str:
+    return (
+        f"tensor[{relationship.second_tensor_id}] reuses tensor[{relationship.first_tensor_id}]'s "
+        f"memory interval [{relationship.overlap_start:,}, {relationship.overlap_end:,}) -- "
+        f"tensor[{relationship.first_tensor_id}]'s lifetime ends at scope {relationship.first_lifetime[1]}, "
+        f"tensor[{relationship.second_tensor_id}] does not start until scope {relationship.second_lifetime[0]}, "
+        "so the planner safely hands the freed slot over."
+    )
+
+
 def render_packing_svg(explanation: MemoryExplanation) -> str:
-    """Render scope-by-offset tensor placement as a responsive inline SVG."""
+    """Render scope-by-offset tensor placement as a responsive inline SVG.
+
+    Beyond placement, this marks two things the planner already knows:
+    dashed hand-off markers between ``explanation.reuse`` pairs (a chevron
+    where the columns are too close together for a legible line), and a
+    small badge on every ``explanation.reuse_blockers`` tensor whose tooltip
+    and click-to-jump link explain why it could not share a slot.
+    """
 
     width = 1000
     height = 620
@@ -96,13 +119,17 @@ def render_packing_svg(explanation: MemoryExplanation) -> str:
             item.tensor_id,
         ),
     )
+    blockers_by_tensor_id: dict[int, ReuseBlocker] = {
+        blocker.tensor_id: blocker for blocker in explanation.reuse_blockers
+    }
 
     elements = [
         '<svg id="arena-packing-svg" class="packing-svg" '
         f'viewBox="0 0 {width} {height}" role="img" '
         'aria-labelledby="arena-packing-title arena-packing-description">',
         '<title id="arena-packing-title">Arena placement across execution scopes</title>',
-        '<desc id="arena-packing-description">Each tensor rectangle spans its inclusive execution lifetime horizontally and its planned arena-head byte interval vertically.</desc>',
+        '<desc id="arena-packing-description">Each tensor rectangle spans its inclusive execution lifetime horizontally and its planned arena-head byte interval vertically. A dashed marker between two rectangles shows a safe reuse hand-off; a badge on a rectangle shows it could not share a slot with an overlapping tensor.</desc>',
+        '<defs><marker id="reuse-arrowhead-marker" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" class="reuse-arrowhead" /></marker></defs>',
         f'<rect class="plot-background" x="{left}" y="{top}" width="{plot_width}" height="{plot_height}" />',
     ]
 
@@ -128,6 +155,7 @@ def render_packing_svg(explanation: MemoryExplanation) -> str:
             f'<text class="axis-tick offset-tick" x="{left - 10}" y="{y + 4:.3f}" text-anchor="end">{value:,}</text>'
         )
 
+    rects: dict[int, tuple[float, float, float, float]] = {}
     if allocations:
         for tensor in allocations:
             x = left + tensor.first_used_scope * column_width + 2
@@ -138,23 +166,78 @@ def render_packing_svg(explanation: MemoryExplanation) -> str:
             )
             y = top + tensor.offset * plot_height / denominator
             rectangle_height = tensor.aligned_bytes * plot_height / denominator
+            rects[tensor.tensor_id] = (x, y, rectangle_width, rectangle_height)
             color = _SVG_PALETTE[tensor.tensor_id % len(_SVG_PALETTE)]
             title = (
                 f"tensor[{tensor.tensor_id}] {tensor.name or '<unnamed>'}; "
                 f"lifetime {tensor.first_used_scope}..{tensor.last_used_scope}; "
                 f"memory [{tensor.offset}, {tensor.end_offset}) bytes"
             )
+            blocker = blockers_by_tensor_id.get(tensor.tensor_id)
+            if blocker is not None:
+                title = f"{title} -- reuse-blocked: {describe_reuse_blocker(blocker)}"
+
+            wrap_open, wrap_close = "", ""
+            if blocker is not None:
+                wrap_open = f'<a href="#reuse-blocker-{tensor.tensor_id}" class="blocked-link">'
+                wrap_close = "</a>"
+
             elements.append(
-                f'<g id="tensor-allocation-{tensor.tensor_id}" class="tensor-allocation" data-tensor-id="{tensor.tensor_id}">'
+                f'{wrap_open}<g id="tensor-allocation-{tensor.tensor_id}" class="tensor-allocation{" is-blocked" if blocker is not None else ""}" data-tensor-id="{tensor.tensor_id}">'
                 f'<rect class="tensor-rect" x="{x:.3f}" y="{y:.3f}" width="{max(rectangle_width, 1):.3f}" height="{max(rectangle_height, 1):.3f}" fill="{color}" stroke="#172033" stroke-width="1">'
                 f'<title>{_text(title)}</title></rect>'
                 f'<text class="tensor-label" x="{x + 5:.3f}" y="{y + min(max(rectangle_height, 14), 22):.3f}">#{tensor.tensor_id} {_text(_short_name(tensor.name))}</text>'
-                "</g>"
             )
+            if blocker is not None:
+                badge_size = 9.0
+                badge_x = x + max(rectangle_width - badge_size - 2, 2)
+                badge_y = y + 3
+                elements.append(
+                    f'<polygon class="blocker-badge" points='
+                    f'"{badge_x:.3f},{badge_y + badge_size:.3f} '
+                    f'{badge_x + badge_size / 2:.3f},{badge_y:.3f} '
+                    f'{badge_x + badge_size:.3f},{badge_y + badge_size:.3f}">'
+                    f'<title>{_text("Reuse-blocked: " + describe_reuse_blocker(blocker))}</title>'
+                    "</polygon>"
+                )
+            elements.append(f"</g>{wrap_close}")
     else:
         elements.append(
             f'<text class="empty-svg" x="{left + plot_width / 2:.3f}" y="{top + plot_height / 2:.3f}" text-anchor="middle">No runtime allocations</text>'
         )
+
+    for relationship in explanation.reuse:
+        first_rect = rects.get(relationship.first_tensor_id)
+        second_rect = rects.get(relationship.second_tensor_id)
+        if first_rect is None or second_rect is None:
+            continue
+        first_x, _, first_width, _ = first_rect
+        second_x, _, _, _ = second_rect
+        y_mid = top + (
+            (relationship.overlap_start + relationship.overlap_end)
+            / 2
+            * plot_height
+            / denominator
+        )
+        gap_start = first_x + first_width
+        gap_end = second_x
+        title = _text(_reuse_handoff_title(relationship))
+        if gap_end - gap_start > 20:
+            elements.append(
+                f'<line class="reuse-arrow" x1="{gap_start:.3f}" y1="{y_mid:.3f}" '
+                f'x2="{gap_end - 3:.3f}" y2="{y_mid:.3f}" marker-end="url(#reuse-arrowhead-marker)">'
+                f"<title>{title}</title></line>"
+            )
+        else:
+            # Adjacent columns leave too little room for a legible line -- a
+            # fixed-size hand-off chevron stays visible regardless of gap width.
+            mid_x = (gap_start + gap_end) / 2
+            elements.append(
+                f'<g class="reuse-handoff"><title>{title}</title>'
+                f'<circle cx="{mid_x:.3f}" cy="{y_mid:.3f}" r="7" />'
+                f'<path d="M {mid_x - 2.5:.3f} {y_mid - 3.5:.3f} L {mid_x + 2.5:.3f} {y_mid:.3f} '
+                f'L {mid_x - 2.5:.3f} {y_mid + 3.5:.3f}" class="reuse-chevron" /></g>'
+            )
 
     peak_x = left + (explanation.peak.scope + 0.5) * column_width
     elements.extend(
@@ -264,27 +347,10 @@ def _reuse_rows(explanation: MemoryExplanation) -> str:
 def _blocker_items(explanation: MemoryExplanation) -> str:
     if not explanation.reuse_blockers:
         return '<p class="empty">No overlapping runtime lifetimes.</p>'
-    items: list[str] = []
-    for blocker in explanation.reuse_blockers:
-        overlapping = ", ".join(
-            f"tensor[{tensor_id}]"
-            for tensor_id in blocker.overlapping_tensor_ids
-        )
-        through = (
-            f"operator {blocker.last_consumer_operator_id} "
-            f"({_text(blocker.last_consumer_operator_name)})"
-            if blocker.last_consumer_operator_id is not None
-            else f"scope {blocker.lifetime[1]}"
-        )
-        items.append(
-            "<li>"
-            f"<strong>tensor[{blocker.tensor_id}] {_name(blocker.tensor_name)}</strong> "
-            f"({blocker.aligned_bytes:,} aligned bytes) remains live through {through}. "
-            f"Its lifetime {blocker.lifetime[0]}..{blocker.lifetime[1]} overlaps "
-            f"with {_text(overlapping)}, so those tensors cannot reuse the same "
-            "memory interval."
-            "</li>"
-        )
+    items = [
+        f'<li id="reuse-blocker-{blocker.tensor_id}">{_text(describe_reuse_blocker(blocker))}</li>'
+        for blocker in explanation.reuse_blockers
+    ]
     return '<ul class="blockers">' + "".join(items) + "</ul>"
 
 
@@ -376,8 +442,20 @@ th,td {{ padding:8px 9px; text-align:left; border-bottom:1px solid var(--line); 
 .axis-tick {{ fill:var(--muted); font-size:11px; }} .axis-label {{ fill:var(--ink); font-size:13px; font-weight:650; }}
 .peak-marker {{ stroke:#c22e3f; stroke-width:3; stroke-dasharray:8 5; }} .peak-label {{ fill:#a51f31; font-size:12px; font-weight:700; }}
 .head-boundary {{ stroke:#172033; stroke-width:3; }} .boundary-label {{ fill:#172033; font-size:11px; font-weight:700; }} .empty-svg {{ fill:var(--muted); font-size:18px; }}
+.tensor-rect {{ transition:opacity .12s; }} .tensor-allocation:hover .tensor-rect {{ opacity:.85; }}
+.blocked-link {{ cursor:pointer; }} .blocker-badge {{ fill:var(--warn); stroke:#fff; stroke-width:1; }}
+.reuse-arrow, .reuse-chevron {{ stroke:var(--good); stroke-width:2.4; fill:none; stroke-linecap:round; stroke-linejoin:round; }}
+.reuse-arrow {{ stroke-dasharray:6 4; }} .reuse-arrowhead {{ fill:var(--good); }}
+.reuse-handoff circle {{ fill:#fff; stroke:var(--good); stroke-width:2; }} .reuse-handoff:hover circle {{ fill:#e9f7f1; }}
+.chart-legend {{ display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:9px 13px; background:var(--panel); border:1px solid var(--line); border-radius:6px; margin:0 0 12px; font-size:12.5px; }}
+.chart-legend .item {{ display:flex; align-items:center; gap:6px; white-space:nowrap; }}
+.chart-legend .swatch-reuse {{ width:18px; height:0; border-top:2px dashed var(--good); display:inline-block; }}
+.chart-legend .swatch-blocked {{ width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:9px solid var(--warn); display:inline-block; }}
+.chart-legend .swatch-peak {{ width:0; height:14px; border-left:2px dashed #c22e3f; display:inline-block; }}
+.chart-legend .swatch-boundary {{ width:18px; height:3px; background:#172033; display:inline-block; }}
 figure {{ margin:12px 0 0; }} figcaption {{ margin-top:8px; color:var(--muted); }}
-.blockers {{ padding-left:22px; }} .blockers li {{ margin:8px 0; }}
+.blockers {{ padding-left:22px; }} .blockers li {{ margin:8px 0; scroll-margin-top:16px; }}
+.blockers li:target {{ outline:2px solid var(--warn); outline-offset:3px; background:#fdf3e7; border-radius:4px; }}
 footer {{ margin-top:24px; color:var(--muted); font-size:12px; }}
 @media (max-width:680px) {{ main {{ padding:16px 10px 36px; }} .packing-row {{ grid-template-columns:1fr; gap:4px; }} section {{ padding:13px; }} }}
 @media print {{ body {{ background:#fff; }} main {{ max-width:none; padding:0; }} section,.card {{ break-inside:avoid; }} }}
@@ -407,7 +485,7 @@ footer {{ margin-top:24px; color:var(--muted); font-size:12px; }}
 </dl><p class="muted">Tensor-size sums are not the planned head: safely reused regions can reduce the plan.</p></section>
 <section><h2>Peak execution point</h2><div class="peak"><div><strong>{_text(peak_context)}</strong></div><div>Occupied arena extent<br><strong>{peak.occupied_extent_bytes:,} bytes</strong></div><div>Live aligned tensor sum<br><strong>{peak.live_aligned_bytes:,} bytes</strong></div><div>Tied peak scopes<br><strong>{_text(tied)}</strong></div></div><h3>Live tensors at peak</h3>{_tensor_table(explanation.live_tensors_at_peak)}</section>
 <section><h2>Largest runtime tensors</h2>{_tensor_table(explanation.largest_tensors)}</section>
-<section><h2>Arena placement across execution scopes</h2><figure>{render_packing_svg(explanation)}<figcaption>Horizontal position represents inclusive execution lifetime; vertical position represents the planned arena-head memory interval. Tensors occupying the same memory interval at disjoint execution scopes represent safe reuse. Rectangle labels and outlines ensure the view does not rely on color alone.</figcaption></figure><h3>Compact offset view</h3><p class="muted">Horizontal position and width below correspond to planned byte offsets.</p>{_packing_rows(explanation)}</section>
+<section><h2>Arena placement across execution scopes</h2><div class="chart-legend"><span class="item"><span class="swatch-reuse"></span> safe reuse hand-off (hover for detail)</span><span class="item"><span class="swatch-blocked"></span> reuse-blocked (hover, or click to jump to why)</span><span class="item"><span class="swatch-peak"></span> selected peak scope</span><span class="item"><span class="swatch-boundary"></span> planned arena-head boundary</span></div><figure>{render_packing_svg(explanation)}<figcaption>Horizontal position represents inclusive execution lifetime; vertical position represents the planned arena-head memory interval. Tensors occupying the same memory interval at disjoint execution scopes represent safe reuse. Rectangle labels and outlines ensure the view does not rely on color alone.</figcaption></figure><h3>Compact offset view</h3><p class="muted">Horizontal position and width below correspond to planned byte offsets.</p>{_packing_rows(explanation)}</section>
 <section><h2>All planned runtime tensors</h2>{_tensor_table(explanation.allocations)}</section>
 <section><h2>Execution scopes</h2><div class="table-wrap"><table><thead><tr><th>Scope</th><th>Context</th><th>Occupied extent</th><th>Live aligned sum</th><th>Live tensor IDs</th></tr></thead><tbody>{scope_rows}</tbody></table></div></section>
 <section><h2>Safe memory reuse</h2><div class="table-wrap"><table><thead><tr><th>Earlier tensor</th><th>Earlier lifetime</th><th>Overlap interval</th><th>Later tensor</th><th>Later lifetime</th></tr></thead><tbody>{_reuse_rows(explanation)}</tbody></table></div><h3>Conservative reuse blockers</h3>{_blocker_items(explanation)}</section>

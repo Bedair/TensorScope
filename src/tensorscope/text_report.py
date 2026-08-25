@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from tensorscope.explain import MemoryExplanation, TensorExplanation
+from tensorscope.explain import (
+    MemoryExplanation,
+    TensorExplanation,
+    describe_reuse_blocker,
+)
 
 
 DEFAULT_TABLE_LIMIT = 10
@@ -192,23 +196,7 @@ def render_memory_explanation(
         if not explanation.reuse_blockers:
             lines.append("  (none)")
         for blocker in explanation.reuse_blockers:
-            consumers = ", ".join(
-                f"tensor[{tensor_id}]"
-                for tensor_id in blocker.overlapping_tensor_ids
-            )
-            through = (
-                f"operator {blocker.last_consumer_operator_id} "
-                f"({blocker.last_consumer_operator_name})"
-                if blocker.last_consumer_operator_id is not None
-                else f"scope {blocker.lifetime[1]}"
-            )
-            lines.append(
-                f"  Tensor {blocker.tensor_id} ({_name(blocker.tensor_name)}) "
-                f"remains live through {through}; its lifetime "
-                f"{blocker.lifetime[0]}..{blocker.lifetime[1]} overlaps in time "
-                f"with {consumers}, so those tensors cannot reuse the same "
-                "memory interval."
-            )
+            lines.append(f"  {describe_reuse_blocker(blocker)}")
     if include_ascii:
         lines.extend(
             [

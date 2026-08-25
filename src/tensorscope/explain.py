@@ -125,6 +125,35 @@ class ReuseBlocker:
         return result
 
 
+def describe_reuse_blocker(blocker: ReuseBlocker) -> str:
+    """Render the deterministic, plain-text explanation for one conservative
+    reuse blocker.
+
+    Shared by the text renderer, the HTML prose list, and the HTML arena
+    chart's SVG tooltips, so the reasoning can never drift between them. SVG
+    ``<title>`` elements cannot contain markup, so this returns plain text;
+    callers that want HTML apply their own escaping.
+    """
+
+    name = blocker.tensor_name or "<unnamed>"
+    overlapping = ", ".join(
+        f"tensor[{tensor_id}]"
+        for tensor_id in blocker.overlapping_tensor_ids
+    )
+    through = (
+        f"operator {blocker.last_consumer_operator_id} "
+        f"({blocker.last_consumer_operator_name})"
+        if blocker.last_consumer_operator_id is not None
+        else f"scope {blocker.lifetime[1]}"
+    )
+    return (
+        f"tensor[{blocker.tensor_id}] {name} ({blocker.aligned_bytes:,} aligned bytes) "
+        f"remains live through {through}. Its lifetime "
+        f"{blocker.lifetime[0]}..{blocker.lifetime[1]} overlaps with {overlapping}, "
+        "so those tensors cannot reuse the same memory interval."
+    )
+
+
 @dataclass(frozen=True)
 class MemoryExplanation:
     summary: MemorySummary
