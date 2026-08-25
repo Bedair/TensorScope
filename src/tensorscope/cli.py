@@ -45,7 +45,11 @@ from tensorscope.memory_budget import (
     parse_size,
     render_profile_listing,
 )
-from tensorscope.oracle import TFLMOracleError
+from tensorscope.oracle import (
+    STRUCTURALLY_UNSUPPORTED,
+    UNREGISTERED_OPERATOR,
+    TFLMOracleError,
+)
 from tensorscope.oracle_validation import validate_model_against_tflm
 from tensorscope.recommendations import (
     MemoryRiskAssessment,
@@ -74,6 +78,22 @@ EXIT_FIRMWARE_CHECK_FAILURE = 11
 
 class ValidationUnavailableError(RuntimeError):
     """Raised when a valid model cannot be checked by the oracle."""
+
+
+_ORACLE_INCOMPATIBILITY_EXPLANATIONS = {
+    UNREGISTERED_OPERATOR: (
+        "TensorScope's TFLM oracle has not registered an operator this model "
+        "uses. TFLM may already implement it elsewhere in its kernel set -- "
+        "file a coverage gap and consider registering it in "
+        "tools/tflm_oracle/main.cc."
+    ),
+    STRUCTURALLY_UNSUPPORTED: (
+        "TFLM found this operator but refuses to run it for this model's "
+        "configuration (for example hybrid int8/float32 quantization). The "
+        "model cannot run on stock TFLM regardless of oracle registration -- "
+        "check whether it was exported for a different runtime or toolchain."
+    ),
+}
 
 
 def _unknown_figures() -> tuple[MemoryFigure, MemoryFigure]:
@@ -457,22 +477,26 @@ def _print_error(
     as_json: bool,
     error_type: str,
     exit_code: int,
+    explanation: str | None = None,
 ) -> None:
     if as_json:
+        payload: dict[str, object] = {
+            "confidence": "unsupported",
+            "error": message,
+            "error_type": error_type,
+            "exit_code": exit_code,
+        }
+        if explanation is not None:
+            payload["explanation"] = explanation
         print(
-            json.dumps(
-                {
-                    "confidence": "unsupported",
-                    "error": message,
-                    "error_type": error_type,
-                    "exit_code": exit_code,
-                },
-                sort_keys=True,
-            ),
+            json.dumps(payload, sort_keys=True),
             file=sys.stderr,
         )
     else:
-        print(f"Error ({error_type}): {message}", file=sys.stderr)
+        rendered = f"Error ({error_type}): {message}"
+        if explanation is not None:
+            rendered += f"\n{explanation}"
+        print(rendered, file=sys.stderr)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -667,11 +691,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return EXIT_REPORT_ERROR
     except (TFLMOracleError, ValidationUnavailableError, OSError) as error:
+        category = getattr(error, "category", None)
         _print_error(
             str(error),
             as_json=getattr(arguments, "json", False),
-            error_type="validation_unavailable",
+            error_type=category or "validation_unavailable",
             exit_code=EXIT_VALIDATION_UNAVAILABLE,
+            explanation=_ORACLE_INCOMPATIBILITY_EXPLANATIONS.get(category),
         )
         return EXIT_VALIDATION_UNAVAILABLE
 

@@ -47,3 +47,58 @@ Synthetic tests cover fan-out, branch merge, skip/late consumption, multiple
 consumers, graph outputs, constants, deterministic ordering, overlap, and reuse;
 those graph patterns are not yet independently represented by an oracle corpus
 model.
+
+## When `validate` cannot reach the oracle
+
+`tensorscope validate` fails with exit code 3 (`validation_unavailable`) for
+several unrelated reasons -- a missing oracle executable, a malformed model,
+or the oracle process itself failing. When the failure is caused by the model
+using an operator the oracle cannot run, the JSON/text error output carries
+one of two more specific `error_type` values instead, distinguished by
+`tensorscope.oracle.classify_oracle_incompatibility` from the oracle's exit
+code and TFLM's own diagnostic text:
+
+- **`unregistered_operator`** -- the oracle's `MicroMutableOpResolver` in
+  `tools/tflm_oracle/main.cc` has not registered an operator this model uses.
+  This is a coverage gap in the oracle build, not proof TFLM cannot run the
+  model: TFLM may already ship a kernel for it. Two distinct oracle exit
+  paths land here: the oracle's own pre-flight allowlist rejecting the
+  builtin opcode before the interpreter runs at all (`ValidateRegisteredOperators`,
+  exit code 6, "unsupported operator at index ..."), or TFLM's runtime
+  resolver failing to find a kernel for an opcode the allowlist did
+  recognize ("Didn't find op for builtin opcode ..." -- the exact bug fixed
+  for `MAX_POOL_2D`/`QUANTIZE` above). **Next step:** check whether
+  `third_party/tflite-micro/tensorflow/lite/micro/kernels/` actually
+  implements the operator, and if so, register it in `main.cc` and file a
+  coverage gap.
+
+  Real example already in this repository: `PAD` genuinely has a TFLM kernel
+  (`kernels/pad.cc`) but is not in the oracle's allowlist, so running the
+  oracle against the vendored fixture
+  `third_party/tflite-micro/tensorflow/lite/micro/integration_tests/seanet/pad/pad0.tflite`
+  reliably reproduces this category (exit code 6, `builtin opcode 34`).
+
+- **`structurally_unsupported`** -- TFLM found and started preparing (or
+  invoking) a kernel for the operator, but that kernel refused this model's
+  specific configuration. TFLM's engine reports this generically as a node
+  "failed to prepare with status ..." or "failed to invoke with status ...".
+  The clearest known instance is hybrid int8-weight/float32-activation
+  quantization, which `conv_common.cc` rejects outright ("Hybrid models are
+  not supported on TFLite Micro"). Registering the operator differently in
+  the oracle will not help here: the model cannot run on stock TFLM
+  regardless of registration. **Next step:** check whether the model was
+  exported for a different runtime or toolchain (for example a vendor NPU
+  compiler that accepts hybrid quantization) rather than filing a coverage
+  gap.
+
+  No bundled fixture currently exercises this path: TFLM's own examples and
+  this project's synthetic generator deliberately avoid quantization schemes
+  TFLM rejects, and building one requires a real TensorFlow conversion
+  pipeline this repository does not carry. The classification is instead
+  covered by unit tests against TFLM's real, previously observed diagnostic
+  text (see `tests/oracle/test_tflm_oracle.py`). If a cheap real fixture
+  becomes available, add it there and update this note.
+
+A failure that matches neither signature (for example the tensor arena being
+too small) keeps the generic `validation_unavailable` category -- that is a
+real failure, just not one of these two operator-support cases.

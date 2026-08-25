@@ -25,6 +25,66 @@ DEFAULT_ORACLE_EXECUTABLE = (
 class TFLMOracleError(RuntimeError):
     """Raised when the host-side TFLM oracle fails."""
 
+    def __init__(self, message: str, *, category: str | None = None) -> None:
+        super().__init__(message)
+        self.category = category
+
+
+UNREGISTERED_OPERATOR = "unregistered_operator"
+STRUCTURALLY_UNSUPPORTED = "structurally_unsupported"
+
+_UNREGISTERED_OPERATOR_TEXT = "unsupported operator at index"
+_UNREGISTERED_KERNEL_TEXT = "didn't find op for builtin opcode"
+_PREPARE_FAILURE_TEXT = "failed to prepare with status"
+_INVOKE_FAILURE_TEXT = "failed to invoke with status"
+
+
+def classify_oracle_incompatibility(
+    exit_code: int,
+    output: str,
+) -> str | None:
+    """Classify a non-zero oracle exit as a known operator-support failure.
+
+    Two distinct problems surface as oracle failures and need different
+    follow-up:
+
+    ``unregistered_operator`` -- the oracle's own resolver has not
+    registered an operator this model uses. This happens either before
+    the interpreter runs at all (the oracle's pre-flight allowlist in
+    ``ValidateRegisteredOperators`` rejects the builtin opcode, exit code
+    6, message "unsupported operator at index") or at allocation time
+    (TFLM's runtime resolver cannot find a kernel for an opcode the
+    allowlist did recognize, TFLM's own "Didn't find op for builtin
+    opcode" message). TFLM may already implement the operator elsewhere
+    in its kernel set; this is a coverage gap in
+    ``tools/tflm_oracle/main.cc``, not proof the model cannot run on
+    TFLM.
+
+    ``structurally_unsupported`` -- TFLM found a kernel for the operator
+    and started preparing or invoking it, but that kernel refused this
+    model's specific configuration (for example hybrid int8/float32
+    quantization, which TFLM's kernel implementations explicitly
+    reject). TFLM's own engine reports this generically as a node
+    "failed to prepare with status" or "failed to invoke with status".
+    The model cannot run on stock TFLM regardless of oracle
+    registration; it was likely exported for a different runtime or
+    toolchain.
+
+    Returns ``None`` when the failure does not match either signature
+    (for example a malformed model, a missing oracle executable, or the
+    tensor arena being too small) -- that is a real failure, just not
+    one of these two operator-support categories.
+    """
+
+    lowered = output.lower()
+    if exit_code == 6 or _UNREGISTERED_OPERATOR_TEXT in lowered:
+        return UNREGISTERED_OPERATOR
+    if _UNREGISTERED_KERNEL_TEXT in lowered:
+        return UNREGISTERED_OPERATOR
+    if _PREPARE_FAILURE_TEXT in lowered or _INVOKE_FAILURE_TEXT in lowered:
+        return STRUCTURALLY_UNSUPPORTED
+    return None
+
 
 @dataclass(frozen=True)
 class OracleArenaObservation:
@@ -459,7 +519,10 @@ def run_tflm_oracle(
         raise TFLMOracleError(
             "TFLM oracle failed with exit code "
             f"{completed.returncode}:\n"
-            f"{combined_output}"
+            f"{combined_output}",
+            category=classify_oracle_incompatibility(
+                completed.returncode, combined_output
+            ),
         )
 
     return parse_tflm_oracle_output(

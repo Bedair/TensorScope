@@ -13,6 +13,7 @@ from tensorscope.cli import (
     EXIT_INPUT_ERROR,
     EXIT_REPORT_ERROR,
     EXIT_SUCCESS,
+    EXIT_VALIDATION_UNAVAILABLE,
     TFLM_REVISION,
     analyze_model,
     main,
@@ -30,6 +31,22 @@ OPERATOR_CHAIN_MODEL = Path(__file__).parent / "model_corpus" / "models" / "oper
 CONV0_MODEL = Path(__file__).parent / "model_corpus" / "models" / "conv0.tflite"
 MICRO_SPEECH_MODEL = Path(__file__).parent / "model_corpus" / "models" / "micro_speech_quantized.tflite"
 REPOSITORY_ROOT = Path(__file__).parents[1]
+ORACLE_EXECUTABLE = REPOSITORY_ROOT / "tools" / "tflm_oracle" / "build" / "tflm_oracle"
+# Real, already-vendored single-operator fixture whose op (PAD) TFLM
+# genuinely implements but the oracle's narrow resolver has not
+# registered -- see tests/oracle/test_tflm_oracle.py for why this one.
+UNREGISTERED_OPERATOR_MODEL = (
+    REPOSITORY_ROOT
+    / "third_party"
+    / "tflite-micro"
+    / "tensorflow"
+    / "lite"
+    / "micro"
+    / "integration_tests"
+    / "seanet"
+    / "pad"
+    / "pad0.tflite"
+)
 
 
 def _run_package(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -483,3 +500,25 @@ def test_validate_human_label_is_not_generic(
     assert "Arena tail and complete arena usage are oracle observations, not static TensorScope estimates." in output
     assert "pinned host-side TFLM allocator run" in output
     assert "tail validation" not in output.lower()
+
+
+@pytest.mark.skipif(
+    not ORACLE_EXECUTABLE.is_file() or not UNREGISTERED_OPERATOR_MODEL.is_file(),
+    reason=(
+        "TFLM oracle or the pinned TFLM submodule fixture is not "
+        "available; run 'make -C tools/tflm_oracle' and check out "
+        "third_party/tflite-micro"
+    ),
+)
+def test_validate_reports_unregistered_operator_category(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["validate", str(UNREGISTERED_OPERATOR_MODEL), "--json"])
+
+    assert exit_code == EXIT_VALIDATION_UNAVAILABLE
+    output = capsys.readouterr()
+    assert output.out == ""
+    payload = json.loads(output.err)
+    assert payload["error_type"] == "unregistered_operator"
+    assert payload["exit_code"] == EXIT_VALIDATION_UNAVAILABLE
+    assert "coverage gap" in payload["explanation"]

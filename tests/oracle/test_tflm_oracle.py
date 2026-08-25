@@ -5,8 +5,11 @@ from pathlib import Path
 import pytest
 
 from tensorscope.oracle import (
+    STRUCTURALLY_UNSUPPORTED,
+    UNREGISTERED_OPERATOR,
     OracleArenaObservation,
     TFLMOracleError,
+    classify_oracle_incompatibility,
     parse_tflm_oracle_output,
     run_tflm_oracle,
 )
@@ -27,6 +30,25 @@ CORPUS_ROOT = (
     / "tests"
     / "model_corpus"
     / "models"
+)
+
+# A real, already-vendored, single-operator PAD fixture from the pinned TFLM
+# tree. PAD is genuinely implemented by TFLM (see
+# third_party/tflite-micro/tensorflow/lite/micro/kernels/pad.cc) but is not
+# in the oracle's narrow resolver allowlist, so this reliably exercises the
+# "unregistered_operator" (coverage gap) path against the real oracle binary
+# without needing to build a new fixture.
+UNREGISTERED_OPERATOR_FIXTURE = (
+    REPOSITORY_ROOT
+    / "third_party"
+    / "tflite-micro"
+    / "tensorflow"
+    / "lite"
+    / "micro"
+    / "integration_tests"
+    / "seanet"
+    / "pad"
+    / "pad0.tflite"
 )
 
 
@@ -285,3 +307,72 @@ def test_oracle_executable_environment_override(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("TENSORSCOPE_TFLM_ORACLE", str(ORACLE_EXECUTABLE))
     result = run_tflm_oracle(CORPUS_ROOT / "hello_world_float.tflite")
     assert result.arena_head == 128
+
+
+# Real oracle output captured in this repository's history: the
+# pre-c23f178 oracle build failing on MAX_POOL_2D (a coverage gap later
+# fixed by registering AddMaxPool2D), and a genuine hybrid-quantized model
+# that TFLM refuses to prepare regardless of registration.
+_UNREGISTERED_KERNEL_OUTPUT = (
+    "Didn't find op for builtin opcode 'MAX_POOL_2D'\n"
+    "Failed to get registration from op code MAX_POOL_2D\n"
+    " \n"
+    "Error: tensor allocation failed for model: model.tflite\n"
+)
+
+_HYBRID_QUANTIZATION_OUTPUT = (
+    "tensorflow/lite/micro/kernels/conv_common.cc "
+    "Hybrid models are not supported on TFLite Micro.\n"
+    "Node CONV_2D (number 2) failed to prepare with status 1\n"
+    "Error: tensor allocation failed for model: model.tflite\n"
+)
+
+_PRECHECK_REJECTION_OUTPUT = (
+    "Error: unsupported operator at index 0 in model model.tflite: "
+    "builtin opcode 34, custom code ''.\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "output", "expected"),
+    [
+        (6, _PRECHECK_REJECTION_OUTPUT, UNREGISTERED_OPERATOR),
+        (7, _UNREGISTERED_KERNEL_OUTPUT, UNREGISTERED_OPERATOR),
+        (7, _HYBRID_QUANTIZATION_OUTPUT, STRUCTURALLY_UNSUPPORTED),
+        (7, "Node SOMETHING (number 3) failed to invoke with status 1\n", STRUCTURALLY_UNSUPPORTED),
+        (7, "some unrelated allocation failure\n", None),
+        (1, "usage: tflm_oracle MODEL.tflite\n", None),
+    ],
+)
+def test_classify_oracle_incompatibility(
+    exit_code: int,
+    output: str,
+    expected: str | None,
+) -> None:
+    assert classify_oracle_incompatibility(exit_code, output) == expected
+
+
+@pytest.mark.skipif(
+    not ORACLE_EXECUTABLE.is_file() or not UNREGISTERED_OPERATOR_FIXTURE.is_file(),
+    reason=(
+        "TFLM oracle or the pinned TFLM submodule fixture is not "
+        "available; run 'make -C tools/tflm_oracle' and check out "
+        "third_party/tflite-micro"
+    ),
+)
+def test_unregistered_operator_is_a_real_coverage_gap_not_a_mock() -> None:
+    """PAD is a real TFLM kernel; the oracle just hasn't registered it.
+
+    This exercises the "unregistered_operator" classification against the
+    actual compiled oracle binary, using a genuine single-operator fixture
+    already vendored in the pinned TFLM tree -- no synthetic model needed.
+    """
+
+    with pytest.raises(TFLMOracleError) as excinfo:
+        run_tflm_oracle(
+            UNREGISTERED_OPERATOR_FIXTURE,
+            executable=ORACLE_EXECUTABLE,
+        )
+
+    assert excinfo.value.category == UNREGISTERED_OPERATOR
+    assert "builtin opcode 34" in str(excinfo.value)  # 34 == BuiltinOperator.PAD
