@@ -100,7 +100,7 @@ def test_report_states_scope_confidence_and_fit_limitations() -> None:
     report = _report()
 
     assert "This report covers planned arena head only." in report
-    assert "Arena head is statically calculated." in report
+    assert "Arena head is computed by exact, deterministic static analysis" in report
     assert "validation applies only when the TFLM oracle is run" in report
     assert "Arena tail is not statically estimated." in report
     assert "Complete arena total is not statically estimated." in report
@@ -115,14 +115,32 @@ def test_report_contains_explainability_sections_and_known_plan() -> None:
 
     assert "Planned arena head</dt><dd>128 bytes" in report
     assert "Peak execution point" in report
-    assert "Live tensors at peak" in report
-    assert "Largest runtime tensors" in report
+    assert "Runtime tensors" in report
+    assert '<span class="tag tag-peak">PEAK</span>' in report
+    assert '<span class="tag tag-largest">LARGEST</span>' in report
     assert "Arena placement across execution scopes" in report
-    assert "All planned runtime tensors" in report
     assert "Execution scopes" in report
     assert "Safe memory reuse" in report
     assert "[0, 16)" in report
     assert "[64, 80)" in report
+
+
+def test_runtime_tensors_table_marks_peak_and_largest_as_visible_badges() -> None:
+    model = CORPUS / "hello_world_float.tflite"
+    graph = convert_tflite_model(load_tflite_model(model))
+    explanation = explain_primary_subgraph_memory(graph)
+    report = render_html_report(
+        analyze_model(model), explanation, tool_version=__version__, generated_at=FIXED_TIME,
+    )
+
+    peak_ids = {item.tensor_id for item in explanation.live_tensors_at_peak}
+    largest_ids = {item.tensor_id for item in explanation.largest_tensors}
+    assert peak_ids and largest_ids
+
+    # Every tensor still appears exactly once in the unified table (no more
+    # separate peak/largest/all tables to duplicate rows across).
+    for tensor in explanation.allocations:
+        assert report.count(f'<td class="name">{tensor.name or "&lt;unnamed&gt;"}</td>') <= 1
 
 
 def test_model_summary_contains_existing_reuse_counts() -> None:
@@ -217,6 +235,64 @@ def test_profile_budget_section_includes_escaped_profile_and_reserve() -> None:
 
 def test_report_without_budget_preserves_absence() -> None:
     assert 'id="arena-head-budget"' not in _report()
+
+
+def test_lede_states_report_purpose_before_the_notice_box() -> None:
+    report = _report()
+
+    lede_index = report.index('<p class="lede">')
+    notice_index = report.index('<div class="notice"')
+    assert lede_index < notice_index
+    assert "hello_world_float.tflite" in report[lede_index:notice_index]
+    assert "fits your target" in report[lede_index:notice_index]
+
+
+def test_verdict_banner_headline_is_short_and_secondary_carries_the_rest() -> None:
+    model = CORPUS / "hello_world_float.tflite"
+    graph = convert_tflite_model(load_tflite_model(model))
+    report = render_html_report(
+        analyze_model(model), explain_primary_subgraph_memory(graph), tool_version=__version__,
+        generated_at=FIXED_TIME, budget=evaluate_direct_budget(128, 804864),
+        target_clause="on STM32U585, per STMicroelectronics datasheet",
+    )
+    headline_start = report.index('<div class="verdict-headline">')
+    headline_end = report.index("</div>", headline_start)
+    headline = report[headline_start:headline_end]
+    secondary_start = report.index('<p class="verdict-secondary">')
+    secondary_end = report.index("</p>", secondary_start)
+    secondary = report[secondary_start:secondary_end]
+
+    assert "FITS" in headline
+    assert "128 / 804,864 bytes" in headline
+    assert "on STM32U585" in headline
+    # The long clauses live in the secondary line and the aria-label, not
+    # duplicated into the bold headline.
+    assert "datasheet" not in headline
+    assert "tensorscope validate" not in headline
+    assert "STMicroelectronics datasheet" in secondary
+    assert "tensorscope validate" in secondary
+
+    # The full canonical sentence from render_budget_verdict is still present
+    # verbatim, carried in the banner's aria-label for assistive tech and for
+    # anything that only sees this element.
+    assert (
+        'aria-label="Arena-head budget result: FITS (head only — 128 / 804,864 bytes '
+        "on STM32U585, per STMicroelectronics datasheet; arena tail is not estimated"
+    ) in report
+
+
+@pytest.mark.parametrize(
+    ("planned", "budget", "icon"),
+    [(127, 128, "✓"), (128, 128, "⚠"), (129, 128, "✕")],
+)
+def test_verdict_banner_icon_matches_status(planned: int, budget: int, icon: str) -> None:
+    model = CORPUS / "hello_world_float.tflite"
+    graph = convert_tflite_model(load_tflite_model(model))
+    report = render_html_report(
+        analyze_model(model), explain_primary_subgraph_memory(graph), tool_version=__version__,
+        generated_at=FIXED_TIME, budget=evaluate_direct_budget(planned, budget),
+    )
+    assert f'<span class="verdict-icon" aria-hidden="true">{icon}</span>' in report
 
 
 def test_guidance_html_is_self_contained_escaped_and_preserves_svg_and_budget() -> None:

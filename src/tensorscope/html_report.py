@@ -254,9 +254,23 @@ def render_packing_svg(explanation: MemoryExplanation) -> str:
     return "".join(elements)
 
 
-def _tensor_rows(tensors: tuple[TensorExplanation, ...]) -> str:
+def _highlight_badges(tensor_id: int, peak_ids: frozenset[int], largest_ids: frozenset[int]) -> str:
+    badges = []
+    if tensor_id in peak_ids:
+        badges.append('<span class="tag tag-peak">PEAK</span>')
+    if tensor_id in largest_ids:
+        badges.append('<span class="tag tag-largest">LARGEST</span>')
+    return "".join(badges) or "—"
+
+
+def _tensor_rows(
+    tensors: tuple[TensorExplanation, ...],
+    *,
+    peak_ids: frozenset[int] = frozenset(),
+    largest_ids: frozenset[int] = frozenset(),
+) -> str:
     if not tensors:
-        return '<tr><td colspan="12" class="empty">No runtime tensors</td></tr>'
+        return '<tr><td colspan="13" class="empty">No runtime tensors</td></tr>'
     rows: list[str] = []
     for tensor in tensors:
         roles = ", ".join(
@@ -281,20 +295,26 @@ def _tensor_rows(tensors: tuple[TensorExplanation, ...]) -> str:
             f"<td>{tensor.first_used_scope}..{tensor.last_used_scope}</td>"
             f"<td>{tensor.lifetime_length}</td>"
             f"<td>{roles}</td>"
+            f"<td class=\"tags\">{_highlight_badges(tensor.tensor_id, peak_ids, largest_ids)}</td>"
             "</tr>"
         )
     return "".join(rows)
 
 
-def _tensor_table(tensors: tuple[TensorExplanation, ...]) -> str:
+def _tensor_table(
+    tensors: tuple[TensorExplanation, ...],
+    *,
+    peak_ids: frozenset[int] = frozenset(),
+    largest_ids: frozenset[int] = frozenset(),
+) -> str:
     return (
         '<div class="table-wrap"><table><thead><tr>'
         "<th>Tensor</th><th>Name</th><th>Type</th><th>Shape</th>"
         "<th>Logical</th><th>Aligned</th><th>Overhead</th>"
         "<th>Offset</th><th>End</th><th>Lifetime</th>"
-        "<th>Scopes</th><th>Role</th>"
+        "<th>Scopes</th><th>Role</th><th>Highlights</th>"
         "</tr></thead><tbody>"
-        + _tensor_rows(tensors)
+        + _tensor_rows(tensors, peak_ids=peak_ids, largest_ids=largest_ids)
         + "</tbody></table></div>"
     )
 
@@ -406,9 +426,12 @@ def render_html_report(
         "</tr>"
         for scope in explanation.scopes
     )
+    verdict_banner = _verdict_banner(budget, target_clause=target_clause) if budget is not None else ""
     budget_section = _budget_section(budget, target_clause=target_clause) if budget is not None else ""
     guidance_section = _guidance_section(guidance) if guidance is not None else ""
     views_section = _analysis_views_section(result)
+    peak_ids = frozenset(item.tensor_id for item in explanation.live_tensors_at_peak)
+    largest_ids = frozenset(item.tensor_id for item in explanation.largest_tensors)
 
     return f"""<!doctype html>
 <html lang="en">
@@ -417,24 +440,37 @@ def render_html_report(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TensorScope analysis · {_text(model_filename)}</title>
 <style>
-:root {{ color-scheme: light; --ink:#172033; --muted:#5f6b7a; --line:#d8dee8; --paper:#fff; --panel:#f6f8fb; --accent:#3257d5; --good:#176b45; --warn:#8a4b08; }}
+:root {{ color-scheme: light; --ink:#172033; --muted:#5f6b7a; --line:#d8dee8; --paper:#fff; --panel:#f6f8fb; --accent:#3257d5; --good:#176b45; --warn:#8a4b08; --bad:#a51f31; }}
 * {{ box-sizing:border-box; }}
 body {{ margin:0; background:#eef1f6; color:var(--ink); font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }}
 main {{ max-width:1180px; margin:0 auto; padding:28px 18px 56px; }}
 h1 {{ margin:0 0 4px; font-size:28px; }} h2 {{ margin:30px 0 12px; font-size:20px; }} h3 {{ margin:20px 0 8px; font-size:16px; }}
 .subtitle,.muted {{ color:var(--muted); }} .subtitle {{ overflow-wrap:anywhere; }}
-.notice {{ margin:20px 0; padding:14px 16px; border-left:4px solid var(--accent); background:#edf2ff; }}
-.notice p {{ margin:3px 0; }}
+.lede {{ margin:16px 0 0; font-size:16px; max-width:70ch; }}
+.notice {{ margin:16px 0 0; padding:14px 16px; border-left:4px solid var(--accent); background:#edf2ff; }}
+.notice p {{ margin:3px 0; max-width:70ch; }}
 .budget-status {{ display:inline-block; padding:4px 9px; border:2px solid currentColor; border-radius:4px; font-weight:750; }}
+.verdict-banner {{ margin:16px 0 0; padding:16px 18px; border:2px solid currentColor; border-radius:8px; }}
+.verdict-banner.verdict-fits {{ color:var(--good); background:#e9f7f1; }}
+.verdict-banner.verdict-exact_fit {{ color:var(--warn); background:#fdf3e7; }}
+.verdict-banner.verdict-exceeds {{ color:var(--bad); background:#fbe9ec; }}
+.verdict-headline {{ display:flex; align-items:center; gap:10px; font-size:21px; font-weight:800; line-height:1.3; }}
+.verdict-icon {{ font-size:24px; line-height:1; }}
+.verdict-secondary {{ margin:6px 0 0 34px; font-size:13px; font-weight:500; opacity:.82; max-width:70ch; }}
+.tag-peak {{ border-color:var(--accent); color:var(--accent); font-weight:700; }}
+.tag-largest {{ border-color:var(--warn); color:var(--warn); font-weight:700; }}
+details {{ margin-top:10px; }} details > summary {{ cursor:pointer; font-weight:650; color:var(--accent); padding:5px 0; }}
+details[open] > summary {{ margin-bottom:6px; }}
 .guidance-item {{ margin:12px 0; padding:13px; background:var(--panel); border-radius:6px; }} .guidance-item h3 {{ margin:0 0 5px; }}
-.cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }}
+.finding-summary {{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }}
+.cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-top:20px; }}
 .card,section {{ background:var(--paper); border:1px solid var(--line); border-radius:8px; }}
 .card {{ padding:15px; }} .card .label {{ color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }}
 .card .value {{ display:block; margin:4px 0; font-size:22px; font-weight:700; }}
 .tags {{ display:flex; flex-wrap:wrap; gap:5px; }} .tag {{ border-radius:99px; background:var(--panel); border:1px solid var(--line); padding:2px 7px; font-size:12px; }}
 section {{ margin-top:16px; padding:18px; }}
 .metrics {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px 18px; margin:0; }}
-.metrics div {{ padding:7px 0; border-bottom:1px solid var(--line); }} .metrics dt {{ color:var(--muted); }} .metrics dd {{ margin:1px 0 0; font-weight:650; }}
+.metrics div {{ padding:7px 0; border-bottom:1px solid var(--line); min-width:0; }} .metrics dt {{ color:var(--muted); }} .metrics dd {{ margin:1px 0 0; font-weight:650; overflow-wrap:anywhere; }}
 .table-wrap {{ overflow-x:auto; }} table {{ width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }}
 th,td {{ padding:8px 9px; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap; }} th {{ background:var(--panel); font-size:12px; }} td.name {{ max-width:300px; overflow:hidden; text-overflow:ellipsis; }}
 .empty {{ color:var(--muted); font-style:italic; }}
@@ -470,12 +506,13 @@ footer {{ margin-top:24px; color:var(--muted); font-size:12px; }}
 </head>
 <body><main>
 <header><h1>TensorScope arena-head analysis</h1><div class="subtitle"><strong>{_text(model_filename)}</strong><br>{_text(model_path)}</div></header>
+<p class="lede">This report tells you whether <strong>{_text(model_filename)}</strong>'s planned runtime memory (arena head) fits your target's available RAM, and shows exactly why — tensor by tensor.</p>
 <div class="notice" role="note">
-<p><strong>This report covers planned arena head only.</strong></p>
-<p>Arena head is statically calculated. Arena-head validation is not run by <code>analyze</code>; validation applies only when the TFLM oracle is run.</p>
-<p>Arena tail is not statically estimated. Complete arena total is not statically estimated.</p>
-<p>This report does not prove complete MCU or firmware fit.</p>
+<p><strong>Arena head is computed by exact, deterministic static analysis</strong> — not an estimate. Arena-head validation is not run by <code>analyze</code>; validation applies only when the TFLM oracle is run.</p>
+<p>This report covers planned arena head only. Arena tail is not statically estimated. Complete arena total is not statically estimated.</p>
+<p class="muted">Together, arena tail, firmware stack, and other non-model RAM sit outside this report's scope — on their own, this does not prove complete MCU or firmware fit.</p>
 </div>
+{verdict_banner}
 <div class="cards">
 <div class="card"><span class="label">Arena head</span><span class="value">{_bytes(head.get('bytes'))}</span><div class="tags"><span class="tag">scope: {_text(head.get('scope'))}</span><span class="tag">confidence: {_text(head.get('confidence'))}</span><span class="tag">source: {_text(head.get('source'))}</span><span class="tag">validation: {_text(head.get('validation_state'))}</span></div></div>
 <div class="card"><span class="label">Arena tail</span><span class="value">{_bytes(tail.get('bytes'))}</span><div class="tags"><span class="tag">scope: {_text(tail.get('scope'))}</span><span class="tag">confidence: {_text(tail.get('confidence'))}</span><span class="tag">validation: {_text(tail.get('validation_state'))}</span></div></div>
@@ -490,22 +527,16 @@ footer {{ margin-top:24px; color:var(--muted); font-size:12px; }}
 <section><h2>Model summary</h2><dl class="metrics">
 <div><dt>Runtime tensors planned</dt><dd>{summary.runtime_tensor_count:,}</dd></div><div><dt>Constant tensors</dt><dd>{summary.constant_tensor_count:,}</dd></div><div><dt>Operators</dt><dd>{summary.operator_count:,}</dd></div><div><dt>Planned arena head</dt><dd>{summary.planned_arena_head_bytes:,} bytes</dd></div><div><dt>Arena alignment</dt><dd>{summary.arena_alignment_bytes:,} bytes</dd></div><div><dt>Logical runtime-tensor sum</dt><dd>{summary.logical_runtime_tensor_bytes:,} bytes</dd></div><div><dt>Aligned runtime-tensor sum</dt><dd>{summary.aligned_runtime_tensor_bytes:,} bytes</dd></div><div><dt>Per-tensor alignment overhead</dt><dd>{summary.alignment_overhead_bytes:,} bytes</dd></div><div><dt>Safe reuse relationships</dt><dd>{len(explanation.reuse):,}</dd></div><div><dt>Conservative reuse blockers</dt><dd>{len(explanation.reuse_blockers):,}</dd></div>
 </dl><p class="muted">Tensor-size sums are not the planned head: safely reused regions can reduce the plan.</p></section>
-<section><h2>Peak execution point</h2><div class="peak"><div><strong>{_text(peak_context)}</strong></div><div>Occupied arena extent<br><strong>{peak.occupied_extent_bytes:,} bytes</strong></div><div>Live aligned tensor sum<br><strong>{peak.live_aligned_bytes:,} bytes</strong></div><div>Tied peak scopes<br><strong>{_text(tied)}</strong></div></div><h3>Live tensors at peak</h3>{_tensor_table(explanation.live_tensors_at_peak)}</section>
-<section><h2>Largest runtime tensors</h2>{_tensor_table(explanation.largest_tensors)}</section>
-<section><h2>Arena placement across execution scopes</h2><div class="chart-legend"><span class="item"><span class="swatch-reuse"></span> safe reuse hand-off (hover for detail)</span><span class="item"><span class="swatch-blocked"></span> reuse-blocked (hover, or click to jump to why)</span><span class="item"><span class="swatch-peak"></span> selected peak scope</span><span class="item"><span class="swatch-boundary"></span> planned arena-head boundary</span></div><figure>{render_packing_svg(explanation)}<figcaption>Horizontal position represents inclusive execution lifetime; vertical position represents the planned arena-head memory interval. Tensors occupying the same memory interval at disjoint execution scopes represent safe reuse. Rectangle labels and outlines ensure the view does not rely on color alone.</figcaption></figure><h3>Compact offset view</h3><p class="muted">Horizontal position and width below correspond to planned byte offsets.</p>{_packing_rows(explanation)}</section>
-<section><h2>All planned runtime tensors</h2>{_tensor_table(explanation.allocations)}</section>
-<section><h2>Execution scopes</h2><div class="table-wrap"><table><thead><tr><th>Scope</th><th>Context</th><th>Occupied extent</th><th>Live aligned sum</th><th>Live tensor IDs</th></tr></thead><tbody>{scope_rows}</tbody></table></div></section>
-<section><h2>Safe memory reuse</h2><div class="table-wrap"><table><thead><tr><th>Earlier tensor</th><th>Earlier lifetime</th><th>Overlap interval</th><th>Later tensor</th><th>Later lifetime</th></tr></thead><tbody>{_reuse_rows(explanation)}</tbody></table></div><h3>Conservative reuse blockers</h3>{_blocker_items(explanation)}</section>
+<section><h2>Peak execution point</h2><div class="peak"><div><strong>{_text(peak_context)}</strong></div><div>Occupied arena extent<br><strong>{peak.occupied_extent_bytes:,} bytes</strong></div><div>Live aligned tensor sum<br><strong>{peak.live_aligned_bytes:,} bytes</strong></div><div>Tied peak scopes<br><strong>{_text(tied)}</strong></div></div></section>
+<section><h2>Runtime tensors</h2><p class="muted">Every planned runtime tensor; <span class="tag tag-peak">PEAK</span> marks a tensor live at the selected peak scope, <span class="tag tag-largest">LARGEST</span> marks one of the top {len(explanation.largest_tensors)} by aligned size.</p>{_tensor_table(explanation.allocations, peak_ids=peak_ids, largest_ids=largest_ids)}</section>
+<section><h2>Arena placement across execution scopes</h2><div class="chart-legend"><span class="item"><span class="swatch-reuse"></span> safe reuse hand-off (hover for detail)</span><span class="item"><span class="swatch-blocked"></span> reuse-blocked (hover, or click to jump to why)</span><span class="item"><span class="swatch-peak"></span> selected peak scope</span><span class="item"><span class="swatch-boundary"></span> planned arena-head boundary</span></div><figure>{render_packing_svg(explanation)}<figcaption>Horizontal position represents inclusive execution lifetime; vertical position represents the planned arena-head memory interval. Tensors occupying the same memory interval at disjoint execution scopes represent safe reuse. Rectangle labels and outlines ensure the view does not rely on color alone.</figcaption></figure><details><summary>Compact offset view (alternate bar layout)</summary><p class="muted">Horizontal position and width below correspond to planned byte offsets.</p>{_packing_rows(explanation)}</details></section>
+<section><h2>Execution scopes</h2><details><summary>Show all {len(explanation.scopes)} execution scopes</summary><div class="table-wrap"><table><thead><tr><th>Scope</th><th>Context</th><th>Occupied extent</th><th>Live aligned sum</th><th>Live tensor IDs</th></tr></thead><tbody>{scope_rows}</tbody></table></div></details></section>
+<section><h2>Safe memory reuse</h2><details><summary>Show reuse table ({len(explanation.reuse)} pairs) and reuse blockers ({len(explanation.reuse_blockers)})</summary><div class="table-wrap"><table><thead><tr><th>Earlier tensor</th><th>Earlier lifetime</th><th>Overlap interval</th><th>Later tensor</th><th>Later lifetime</th></tr></thead><tbody>{_reuse_rows(explanation)}</tbody></table></div><h3>Conservative reuse blockers</h3>{_blocker_items(explanation)}</details></section>
 <section id="limitations"><h2>Limitations</h2><ul>
-<li>Analysis covers the primary subgraph only.</li>
-<li>Analysis covers planned arena head only.</li>
+<li>Analysis covers the primary subgraph and planned arena head only.</li>
 <li>Arena tail is not statically estimated.</li>
 <li>Complete arena total is not statically estimated.</li>
-<li>Firmware stack usage is not estimated.</li>
-<li>General heap usage is not estimated.</li>
-<li>DMA buffers are not estimated.</li>
-<li>RTOS memory is not estimated.</li>
-<li>Application memory is not estimated.</li>
+<li>Not estimated: Firmware stack usage, heap usage, DMA buffers, RTOS memory, Application memory.</li>
 <li>The report does not establish complete MCU fit.</li>
 <li>Reuse blockers are conservative explanations and do not represent proven counterfactual byte costs.</li>
 <li>Results reflect the planner behavior implemented and pinned by TensorScope.</li>
@@ -515,8 +546,58 @@ footer {{ margin-top:24px; color:var(--muted); font-size:12px; }}
 """
 
 
+# Mirrors the private status-label map inside memory_budget.render_budget_verdict.
+# Duplicated (not imported) because that map is a module-private implementation
+# detail, not part of memory_budget's public API; keep in sync if it changes.
+_BUDGET_STATUS_LABELS = {"fits": "FITS", "exact_fit": "EXACT FIT", "exceeds": "EXCEEDS BUDGET"}
+_BUDGET_STATUS_ICONS = {"fits": "✓", "exact_fit": "⚠", "exceeds": "✕"}
+
+
+def _verdict_banner(budget: ArenaHeadBudgetResult, *, target_clause: str | None = None) -> str:
+    """Render the FITS/EXACT FIT/EXCEEDS verdict as a two-tier banner above the
+    always-visible summary cards: a bold headline (status, byte fraction,
+    target) and a smaller secondary line (citation, a compact tail note).
+
+    ``render_budget_verdict()`` remains the single source of truth for the
+    full sentence used in JSON and text output -- unchanged here. The
+    headline is built from the same typed ``budget``/``target_clause``
+    fields it uses internally (same numbers, same status label), just laid
+    out in two tiers instead of one run-on sentence. The full canonical
+    sentence is still carried verbatim in this banner's ``aria-label``, so
+    it stays intact for assistive tech and for anything (like a screenshot
+    crop) that only sees this element.
+    """
+
+    label = _BUDGET_STATUS_LABELS[budget.status]
+    icon = _BUDGET_STATUS_ICONS[budget.status]
+    headline = f"{label} — {budget.planned_arena_head_bytes:,} / {budget.effective_budget_bytes:,} bytes"
+    citation = ""
+    if target_clause:
+        on_part, _, citation = target_clause.partition(", ")
+        headline = f"{headline} {on_part}"
+    secondary_bits = [citation] if citation else []
+    secondary_bits.append("tail not estimated — run `tensorscope validate`")
+    secondary = "; ".join(secondary_bits)
+    full_verdict = render_budget_verdict(budget, target_clause=target_clause)
+    return (
+        f'<div class="verdict-banner verdict-{budget.status}" role="note" '
+        f'aria-label="Arena-head budget result: {_text(full_verdict)}">'
+        f'<div class="verdict-headline"><span class="verdict-icon" aria-hidden="true">{icon}</span>'
+        f'<span>{_text(headline)}</span></div>'
+        f'<p class="verdict-secondary">{_text(secondary)}</p>'
+        "</div>"
+    )
+
+
+def _budget_source_label(budget: ArenaHeadBudgetResult, target_clause: str | None) -> str:
+    if budget.source == "direct":
+        return "Direct arena-head budget"
+    if target_clause is not None:
+        return "Real MCU/dev-kit target (cited datasheet)"
+    return "Generic MCU planning profile"
+
+
 def _budget_section(budget: ArenaHeadBudgetResult, *, target_clause: str | None = None) -> str:
-    verdict = render_budget_verdict(budget, target_clause=target_clause)
     profile_fields = ""
     if budget.profile_name is not None:
         profile_fields = (
@@ -532,10 +613,9 @@ def _budget_section(budget: ArenaHeadBudgetResult, *, target_clause: str | None 
         if budget.utilization_percent is None
         else f"{budget.utilization_percent:.2f}%"
     )
-    source = "Direct arena-head budget" if budget.source == "direct" else "Generic MCU planning profile"
+    source = _budget_source_label(budget, target_clause)
     return (
-        '<section id="arena-head-budget"><h2>Arena-head budget check</h2>'
-        f'<p><span class="budget-status">Arena-head budget result: {_text(verdict)}</span></p>'
+        '<section id="arena-head-budget"><h2>Arena-head budget details</h2>'
         '<dl class="metrics">'
         f"<div><dt>Budget source</dt><dd>{source}</dd></div>"
         f"{profile_fields}"
@@ -572,14 +652,16 @@ def _guidance_section(guidance: MemoryRiskAssessment) -> str:
             for recommendation in (recommendations[recommendation_id],)
         )
         rendered.append(
-            '<article class="guidance-item">'
-            f"<h3>{index}. {_text(finding.title)}</h3>"
-            f"<div class=\"tags\"><span class=\"tag\">severity: {_text(finding.severity)}</span>"
+            '<details class="guidance-item">'
+            "<summary><span class=\"finding-summary\">"
+            f"<strong>{index}. {_text(finding.title)}</strong>"
+            f"<span class=\"tag\">severity: {_text(finding.severity)}</span>"
             f"<span class=\"tag\">confidence: {_text(finding.confidence)}</span>"
-            f"<span class=\"tag\">category: {_text(finding.category)}</span></div>"
+            f"<span class=\"tag\">category: {_text(finding.category)}</span>"
+            "</span></summary>"
             f"<p>{_text(finding.explanation)}</p>"
             f"<p class=\"muted\">Affected tensors: {_text(tensor_ids)} · Affected operators: {_text(operator_ids)}</p>"
-            f"<dl class=\"metrics\">{evidence}</dl>{linked}</article>"
+            f"<dl class=\"metrics\">{evidence}</dl>{linked}</details>"
         )
     if not rendered:
         rendered.append('<p class="muted">No material model-level arena-head optimization finding was detected by the current rules.</p>')
@@ -594,7 +676,6 @@ def _guidance_section(guidance: MemoryRiskAssessment) -> str:
         f'<div class="card"><span class="label">High or critical</span><span class="value">{summary["high_or_critical_count"]}</span></div></div>'
         + "".join(rendered)
         + "<p><strong>Recommendations are evidence-based suggestions, not guaranteed byte savings.</strong></p>"
-        "<p>This guidance covers planned arena head only.</p>"
         "<p>Model accuracy, operator support, and graph semantics must be revalidated after any model change.</p>"
         "</section>"
     )
@@ -637,13 +718,20 @@ def _analysis_views_section(result: dict[str, object]) -> str:
         '<title id="graph-title">Primary subgraph operator view</title><desc id="graph-desc">Operator nodes are shown in deterministic execution order; tensor relationships remain available in the JSON data.</desc>'
         f'{graph_nodes}</svg>'
     )
+    truncation_note = (
+        '<p class="muted">Node list truncated; not every operator is shown.</p>'
+        if graph["truncated"]
+        else ""
+    )
     return (
-        '<section id="operator-attribution"><h2>Operator-level arena-head pressure</h2>'
-        '<p>Represented live-set metrics are not independently additive contributions to planned arena head. Scratch observation is unavailable.</p>'
+        '<section id="analysis-views"><h2>Additional analysis views</h2>'
+        '<details id="operator-attribution"><summary>Operator-level arena-head pressure</summary>'
+        '<p>Represented live-set metrics are not independently additive contributions to planned arena head.</p>'
         '<div class="table-wrap"><table><thead><tr><th>ID</th><th>Operator</th><th>Input bytes</th><th>Output bytes</th><th>Live bytes</th><th>Occupied extent</th><th>Pressure</th></tr></thead>'
-        f'<tbody>{rows}</tbody></table></div></section>'
-        f'<section id="execution-timeline"><h2>Execution timeline</h2>{timeline_svg}<p class="muted">Text fallback: {len(scopes)} scopes; data is also embedded in analysis_views.execution_timeline.</p></section>'
-        f'<section id="model-graph"><h2>Primary subgraph graph view</h2>{graph_svg}<p class="muted">Deterministic operator-order view; truncated: {_text(graph["truncated"])}.</p></section>'
+        f'<tbody>{rows}</tbody></table></div></details>'
+        f'<details id="execution-timeline"><summary>Execution timeline</summary>{timeline_svg}</details>'
+        f'<details id="model-graph"><summary>Primary subgraph graph view</summary>{graph_svg}{truncation_note}</details>'
+        "</section>"
     )
 
 
