@@ -10,13 +10,28 @@ included host-side oracle — validates it against a pinned TFLM interpreter.
 ## Install
 
 ```console
-python -m pip install .
+pip install tensorscope-cli
 ```
+
+The PyPI distribution is named `tensorscope-cli` (`tensorscope` was already
+taken by an unrelated project), but this installs the `tensorscope` command
+— that's what you run.
 
 No C++ toolchain is required for this step. `analyze`, `compare`, `check`,
 `baseline`, `batch`, budget/target checks, and all report output (text, JSON,
 HTML, SARIF) are pure Python and have zero dependency on the compiled oracle
 binary.
+
+### Install from source
+
+For contributing, or to build the optional TFLM oracle (see
+[Validate and the TFLM oracle](#validate-and-the-tflm-oracle) below):
+
+```console
+git clone --recurse-submodules https://github.com/Bedair/TensorScope.git
+cd TensorScope
+python -m pip install -e '.[dev]'
+```
 
 Only `validate` needs the separately built, pinned TFLM oracle — see
 [Validate and the TFLM oracle](#validate-and-the-tflm-oracle) below.
