@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "stm32u585",
+  "mcu_part": "STM32U585",
+  "vendor": "STMicroelectronics",
+  "architecture": "Arm Cortex-M33",
+  "total_sram_bytes": 804864,
+  "dev_kit_aliases": ["NUCLEO-U575ZI-Q"],
+  "source": {
+    "datasheet_title": "STM32U585xx Datasheet - production data",
+    "revision": null,
+    "section": null,
+    "page": null,
+    "url": "https://www.st.com/resource/en/datasheet/stm32u585ai.pdf"
+  },
+  "notes": "786 KB SRAM with ECC OFF, 722 KB with ECC ON -- figure is the ECC-off maximum, confirmed identically in both STM32U575xx and STM32U585xx production datasheets. NUCLEO-U575ZI-Q carries the sibling STM32U575 part, not STM32U585 itself; both share this SRAM figure identically (they differ in cryptographic hardware acceleration, not memory), so the alias is correct for RAM-budget purposes even though the board's actual part number differs from mcu_part.",
+  "default_firmware_reserve_bytes": null
+}

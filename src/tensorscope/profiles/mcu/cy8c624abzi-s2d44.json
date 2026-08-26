@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "cy8c624abzi-s2d44",
+  "mcu_part": "CY8C624ABZI-S2D44",
+  "vendor": "Infineon Technologies",
+  "architecture": "Arm Cortex-M4F + Cortex-M0+ (dual-core)",
+  "total_sram_bytes": 1048576,
+  "dev_kit_aliases": ["CY8CKIT-062S2-AI"],
+  "source": {
+    "datasheet_title": "PSOC™ 62 MCU (CY8C62x8, CY8C62xA) Datasheet",
+    "revision": "Rev. *T, 2026-06-19",
+    "section": "Table 49 Ordering information (see also Section 3.1.7 Memory, Table 50 MPN Decoder)",
+    "page": 115,
+    "url": "https://www.infineon.com/dgdl/Infineon-PSOC_6_MCU_CY8C62X8_CY8C62XA-DataSheet-v18_00-EN.pdf"
+  },
+  "notes": "1024 KB total SRAM in three banks (512 + 256 + 256 KB) is fully present in hardware at a single shared physical address range (0x0800 0000-0x080F FFFF), confirmed in the datasheet's memory map as one region equally accessible to both CPU cores -- the chip does not reserve, split, or otherwise limit any portion of this 1024 KB to one core over the other. A dual-core firmware project typically partitions this shared space between the two cores' images, but that partitioning is a linker/RTOS decision made by the firmware author, not a hardware limitation: a single-core (or single-image) use of the chip, such as running TFLM entirely on the Cortex-M4, can address the full 1024 KB. Confirmed via the exact part row in Table 49 (Ordering information) and independently via the MPN memory-size decode in Table 50, not just the family's 'up to 1 MB' headline figure -- the sibling CY8C6248xxx parts in the same family only get 512 KB.",
+  "default_firmware_reserve_bytes": null
+}

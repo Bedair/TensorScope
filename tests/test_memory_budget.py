@@ -140,3 +140,33 @@ def test_verdict_states_head_only_scope_inline_and_points_to_validate(
     assert "tail is not estimated" in verdict
     assert "tensorscope validate" in verdict
     assert result.to_dict()["verdict"] == verdict
+
+
+def test_target_clause_is_spliced_between_the_byte_fraction_and_the_tail_caveat() -> None:
+    result = evaluate_direct_budget(12480, 804864)
+
+    verdict = render_budget_verdict(
+        result, target_clause="on STM32U585, per STMicroelectronics datasheet"
+    )
+
+    assert verdict == (
+        "FITS (head only — 12,480 / 804,864 bytes on STM32U585, per "
+        "STMicroelectronics datasheet; arena tail is not estimated here — "
+        "run `tensorscope validate` for an oracle-observed tail)"
+    )
+
+
+def test_target_clause_defaults_to_none_and_changes_nothing_when_omitted() -> None:
+    result = evaluate_direct_budget(128, 256)
+
+    assert render_budget_verdict(result) == render_budget_verdict(result, target_clause=None)
+
+
+def test_to_dict_verdict_has_no_target_clause_by_default() -> None:
+    # ArenaHeadBudgetResult.to_dict() itself never receives a target_clause
+    # -- only the CLI overrides the JSON verdict, and only for --target
+    # results. This documents that the dataclass's own shape is unaffected.
+    result = evaluate_profile_budget(128, get_mcu_profile("cortex-m4-256k"))
+
+    assert result.to_dict()["verdict"] == render_budget_verdict(result)
+    assert "datasheet" not in result.to_dict()["verdict"]

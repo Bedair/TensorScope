@@ -107,19 +107,31 @@ _BUDGET_STATUS_LABELS: dict[BudgetStatus, str] = {
 }
 
 
-def render_budget_verdict(budget: ArenaHeadBudgetResult) -> str:
+def render_budget_verdict(
+    budget: ArenaHeadBudgetResult,
+    *,
+    target_clause: str | None = None,
+) -> str:
     """Render the FITS/EXACT FIT/EXCEEDS BUDGET verdict with its arena-head-only
     scope stated inline, so the caveat cannot be missed at the point the verdict
     itself is read -- not only in a separate field elsewhere in the same result.
 
     Shared by text, JSON (via to_dict), and HTML rendering so the wording can't
     drift between them.
+
+    ``target_clause`` is optional and only ever supplied for a --target result
+    (see tensorscope.target_profiles.render_target_verdict_clause) -- a generic
+    --mcu-profile/--arena-head-budget verdict has no real datasheet citation to
+    show and is unaffected by this parameter. Kept as a rendering-time argument
+    rather than a new ArenaHeadBudgetResult field, so that dataclass's shape
+    stays exactly what every existing caller already expects.
     """
 
     label = _BUDGET_STATUS_LABELS[budget.status]
+    clause = f" {target_clause}" if target_clause else ""
     return (
         f"{label} (head only — {budget.planned_arena_head_bytes:,} / "
-        f"{budget.effective_budget_bytes:,} bytes; arena tail is not estimated "
+        f"{budget.effective_budget_bytes:,} bytes{clause}; arena tail is not estimated "
         "here — run `tensorscope validate` for an oracle-observed tail)"
     )
 

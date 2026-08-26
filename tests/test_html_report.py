@@ -177,6 +177,30 @@ def test_budget_section_renders_every_textual_status(planned: int, budget: int, 
     assert '<svg id="arena-packing-svg"' in report
 
 
+def test_budget_section_splices_in_target_clause_when_supplied() -> None:
+    model = CORPUS / "hello_world_float.tflite"
+    graph = convert_tflite_model(load_tflite_model(model))
+    report = render_html_report(
+        analyze_model(model), explain_primary_subgraph_memory(graph), tool_version=__version__,
+        generated_at=FIXED_TIME, budget=evaluate_direct_budget(128, 804864),
+        target_clause="on STM32U585, per STMicroelectronics datasheet",
+    )
+    assert (
+        "Arena-head budget result: FITS (head only — 128 / 804,864 bytes "
+        "on STM32U585, per STMicroelectronics datasheet; arena tail is not estimated"
+    ) in report
+
+
+def test_budget_section_omits_target_clause_when_not_supplied() -> None:
+    model = CORPUS / "hello_world_float.tflite"
+    graph = convert_tflite_model(load_tflite_model(model))
+    report = render_html_report(
+        analyze_model(model), explain_primary_subgraph_memory(graph), tool_version=__version__,
+        generated_at=FIXED_TIME, budget=evaluate_direct_budget(128, 804864),
+    )
+    assert "datasheet" not in report
+
+
 def test_profile_budget_section_includes_escaped_profile_and_reserve() -> None:
     model = CORPUS / "hello_world_float.tflite"
     graph = convert_tflite_model(load_tflite_model(model))

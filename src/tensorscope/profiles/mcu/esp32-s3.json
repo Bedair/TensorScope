@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "esp32-s3",
+  "mcu_part": "ESP32-S3",
+  "vendor": "Espressif Systems",
+  "architecture": "Xtensa LX7 (dual-core)",
+  "total_sram_bytes": 524288,
+  "dev_kit_aliases": ["ESP32-S3-DevKitC-1"],
+  "source": {
+    "datasheet_title": "ESP32-S3 Series Datasheet",
+    "revision": "Version 2.2",
+    "section": "Section 4.1.2.1 Internal Memory",
+    "page": 38,
+    "url": "https://documentation.espressif.com/esp32-s3_datasheet_en.pdf"
+  },
+  "notes": "512 KB on-chip SRAM for data and instructions. Separate from this: 16 KB total RTC memory (RTC FAST 8 KB + RTC SLOW 8 KB), not included in total_sram_bytes since it's a distinct low-power retention domain, not general-purpose arena-eligible RAM.",
+  "default_firmware_reserve_bytes": null
+}

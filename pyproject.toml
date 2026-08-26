@@ -34,7 +34,7 @@ tensorscope = "tensorscope.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-tensorscope = ["py.typed"]
+tensorscope = ["py.typed", "profiles/mcu/*.json"]
 
 [tool.setuptools.dynamic]
 version = {attr = "tensorscope.__version__"}

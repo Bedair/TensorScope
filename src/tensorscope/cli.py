@@ -46,6 +46,12 @@ from tensorscope.memory_budget import (
     render_budget_verdict,
     render_profile_listing,
 )
+from tensorscope.target_profiles import (
+    as_mcu_profile,
+    render_target_listing,
+    render_target_verdict_clause,
+    resolve_target,
+)
 from tensorscope.oracle import (
     STRUCTURALLY_UNSUPPORTED,
     UNREGISTERED_OPERATOR,
@@ -223,6 +229,7 @@ def _render_text(
     include_ascii: bool = True,
     budget: ArenaHeadBudgetResult | None = None,
     guidance: MemoryRiskAssessment | None = None,
+    target_clause: str | None = None,
 ) -> str:
     lines = [f"Model: {result['model_path']}"]
     validation = result.get("validation")
@@ -283,7 +290,7 @@ def _render_text(
             )
         )
     if budget is not None:
-        lines.extend(["", _render_budget_text(budget)])
+        lines.extend(["", _render_budget_text(budget, target_clause=target_clause)])
     if guidance is not None:
         lines.extend(["", render_memory_guidance(guidance, details=details)])
     views = result.get("analysis_views")
@@ -302,7 +309,7 @@ def _render_text(
     return "\n".join(lines)
 
 
-def _render_budget_text(budget: ArenaHeadBudgetResult) -> str:
+def _render_budget_text(budget: ArenaHeadBudgetResult, *, target_clause: str | None = None) -> str:
     source = "Direct arena-head budget" if budget.source == "direct" else "Generic MCU planning profile"
     lines = ["Arena-head budget check", f"Budget source: {source}"]
     if budget.profile_name is not None:
@@ -331,7 +338,7 @@ def _render_budget_text(budget: ArenaHeadBudgetResult) -> str:
     lines.extend(
         [
             f"Utilization: {utilization}",
-            f"Arena-head budget result: {render_budget_verdict(budget)}",
+            f"Arena-head budget result: {render_budget_verdict(budget, target_clause=target_clause)}",
             "This check covers planned arena head only.",
             "This is not a complete MCU or firmware memory-fit conclusion.",
         ]
@@ -366,8 +373,10 @@ def build_argument_parser() -> argparse.ArgumentParser:
     budget_group = analyze_parser.add_mutually_exclusive_group()
     budget_group.add_argument("--arena-head-budget", metavar="SIZE", help="arena-head byte budget")
     budget_group.add_argument("--mcu-profile", metavar="PROFILE", help="generic MCU planning profile")
-    analyze_parser.add_argument("--reserve", metavar="SIZE", help="RAM reserved from the selected profile")
+    budget_group.add_argument("--target", metavar="NAME", help="real MCU part or dev-kit board name (case-insensitive), sourced from a vendor datasheet")
+    analyze_parser.add_argument("--reserve", metavar="SIZE", help="RAM reserved from the selected profile or target")
     analyze_parser.add_argument("--list-mcu-profiles", action="store_true", help="list generic MCU planning profiles and exit (use --mcu-profile <id> to check a model against one)")
+    analyze_parser.add_argument("--list-targets", action="store_true", help="list real per-vendor MCU/dev-kit targets and exit (use --target <name> to check a model against one)")
     analyze_parser.add_argument("--fail-on-budget-exceeded", action="store_true", help="return a dedicated failure code when the planned arena head exceeds the budget")
     analyze_parser.add_argument(
         "--top-tensors",
@@ -441,6 +450,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     deploy_parser.add_argument("--output-dir", type=Path, required=True)
     deploy_parser.add_argument("--margin-percent", type=int, default=10)
     subparsers.add_parser("list-profiles", help="list generic planning profiles (use analyze --mcu-profile <id> to check a model against one)")
+    subparsers.add_parser("list-targets", help="list real per-vendor MCU/dev-kit targets (use analyze --target <name> to check a model against one)")
     return parser
 
 
@@ -507,8 +517,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "list-profiles":
         print(render_profile_listing())
         return EXIT_SUCCESS
+    if arguments.command == "analyze" and arguments.list_targets:
+        print(render_target_listing())
+        return EXIT_SUCCESS
+    if arguments.command == "list-targets":
+        print(render_target_listing())
+        return EXIT_SUCCESS
     explanation: MemoryExplanation | None = None
     budget: ArenaHeadBudgetResult | None = None
+    target_clause: str | None = None
     guidance: MemoryRiskAssessment | None = None
     graph: GraphModel | None = None
     comparison: ModelComparison | None = None
@@ -626,11 +643,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             return EXIT_SUCCESS
         if arguments.command == "analyze":
             if arguments.model is None:
-                raise ValueError("A model path is required unless --list-mcu-profiles is used")
-            if arguments.reserve is not None and arguments.mcu_profile is None:
-                raise ValueError("--reserve may be used only with --mcu-profile")
-            if arguments.fail_on_budget_exceeded and arguments.arena_head_budget is None and arguments.mcu_profile is None:
-                raise ValueError("--fail-on-budget-exceeded requires --arena-head-budget or --mcu-profile")
+                raise ValueError("A model path is required unless --list-mcu-profiles or --list-targets is used")
+            if arguments.reserve is not None and arguments.mcu_profile is None and arguments.target is None:
+                raise ValueError("--reserve may be used only with --mcu-profile or --target")
+            if (
+                arguments.fail_on_budget_exceeded
+                and arguments.arena_head_budget is None
+                and arguments.mcu_profile is None
+                and arguments.target is None
+            ):
+                raise ValueError("--fail-on-budget-exceeded requires --arena-head-budget, --mcu-profile, or --target")
             result, explanation, graph = _calculate_analysis(
                 arguments.model,
                 top_tensors=arguments.top_tensors,
@@ -642,8 +664,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             elif arguments.mcu_profile is not None:
                 reserve = parse_size(arguments.reserve) if arguments.reserve is not None else 0
                 budget = evaluate_profile_budget(planned, get_mcu_profile(arguments.mcu_profile), reserve)
+            elif arguments.target is not None:
+                reserve = parse_size(arguments.reserve) if arguments.reserve is not None else 0
+                resolved_target = resolve_target(arguments.target)
+                budget = evaluate_profile_budget(planned, as_mcu_profile(resolved_target), reserve)
+                target_clause = render_target_verdict_clause(resolved_target)
             if budget is not None:
                 result["arena_head_budget"] = budget.to_dict()
+                if target_clause is not None:
+                    result["arena_head_budget"]["verdict"] = render_budget_verdict(
+                        budget, target_clause=target_clause
+                    )
             guidance = assess_memory_risk(graph, explanation, budget=budget)
             result["memory_guidance"] = guidance.to_dict()
             exit_code = EXIT_SUCCESS
@@ -662,6 +693,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 tool_version=__version__,
                 budget=budget,
                 guidance=guidance,
+                target_clause=target_clause,
             )
             report_path = write_html_report(arguments.html, html)
         else:
@@ -718,6 +750,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 include_ascii=getattr(arguments, "ascii", False),
                 budget=budget,
                 guidance=guidance,
+                target_clause=target_clause,
             )
         )
     if arguments.command == "analyze" and budget is not None and arguments.fail_on_budget_exceeded and budget.status == "exceeds":

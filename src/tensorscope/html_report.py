@@ -362,8 +362,15 @@ def render_html_report(
     generated_at: datetime | None = None,
     budget: ArenaHeadBudgetResult | None = None,
     guidance: MemoryRiskAssessment | None = None,
+    target_clause: str | None = None,
 ) -> str:
-    """Render one deterministic, dependency-free HTML analysis report."""
+    """Render one deterministic, dependency-free HTML analysis report.
+
+    ``target_clause`` is only ever supplied when ``budget`` came from
+    ``--target`` (a real, cited MCU/dev-kit); see
+    tensorscope.target_profiles.render_target_verdict_clause. A generic
+    --mcu-profile/--arena-head-budget report is unaffected.
+    """
 
     head = result["arena_head"]
     tail = result["arena_tail"]
@@ -399,7 +406,7 @@ def render_html_report(
         "</tr>"
         for scope in explanation.scopes
     )
-    budget_section = _budget_section(budget) if budget is not None else ""
+    budget_section = _budget_section(budget, target_clause=target_clause) if budget is not None else ""
     guidance_section = _guidance_section(guidance) if guidance is not None else ""
     views_section = _analysis_views_section(result)
 
@@ -508,8 +515,8 @@ footer {{ margin-top:24px; color:var(--muted); font-size:12px; }}
 """
 
 
-def _budget_section(budget: ArenaHeadBudgetResult) -> str:
-    verdict = render_budget_verdict(budget)
+def _budget_section(budget: ArenaHeadBudgetResult, *, target_clause: str | None = None) -> str:
+    verdict = render_budget_verdict(budget, target_clause=target_clause)
     profile_fields = ""
     if budget.profile_name is not None:
         profile_fields = (

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "nrf52840",
+  "mcu_part": "nRF52840",
+  "vendor": "Nordic Semiconductor",
+  "architecture": "Arm Cortex-M4F",
+  "total_sram_bytes": 262144,
+  "dev_kit_aliases": ["nRF52840-DK", "Arduino Nano 33 BLE", "Arduino Nano 33 BLE Sense", "Adafruit Feather nRF52840 Sense"],
+  "source": {
+    "datasheet_title": "nRF52840 Product Specification",
+    "revision": null,
+    "section": "Memory",
+    "page": null,
+    "url": "https://docs.nordicsemi.com/bundle/ps_nrf52840/page/memory.html"
+  },
+  "notes": "256 kB RAM across 9 AHB slaves: slaves 0-7 each two 4 kB sections, slave 8 six 32 kB sections. The same physical RAM is mapped to both the Code RAM and Data RAM regions, not two separate 256 kB pools. Document revision not visible on the fetched page; left null rather than guessed.",
+  "default_firmware_reserve_bytes": null
+}

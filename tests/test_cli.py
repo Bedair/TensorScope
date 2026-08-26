@@ -75,7 +75,7 @@ def test_package_module_help_executes_successfully() -> None:
     assert completed.returncode == EXIT_SUCCESS
     assert completed.stderr == ""
     assert "usage: tensorscope" in completed.stdout
-    assert "{analyze,validate,compare,check,baseline,batch,firmware-check,deploy-report,list-profiles}" in completed.stdout
+    assert "{analyze,validate,compare,check,baseline,batch,firmware-check,deploy-report,list-profiles,list-targets}" in completed.stdout
 
 
 def test_package_module_analyze_executes_successfully() -> None:
@@ -349,6 +349,178 @@ def test_budget_checks_cover_required_integration_corpus() -> None:
     assert json.loads(operator_chain.stdout)["arena_head_budget"]["status"] == "exact_fit"
     assert json.loads(conv0.stdout)["arena_head_budget"]["status"] == "exceeds"
     assert json.loads(micro_speech.stdout)["arena_head_budget"]["status"] == "fits"
+
+
+@pytest.mark.parametrize(
+    ("target_name", "expected_ram_bytes"),
+    [
+        ("STM32U585", 804864),
+        ("nucleo-u575zi-q", 804864),
+        ("nRF52840", 262144),
+        ("nrf52840-dk", 262144),
+        ("Arduino Nano 33 BLE", 262144),
+        ("arduino nano 33 ble", 262144),
+        ("Arduino Nano 33 BLE Sense", 262144),
+        ("adafruit feather nrf52840 sense", 262144),
+        ("ESP32-S3", 524288),
+        ("esp32-s3-devkitc-1", 524288),
+        ("CY8C624ABZI-S2D44", 1048576),
+        ("cy8ckit-062s2-ai", 1048576),
+    ],
+)
+def test_target_resolves_real_mcu_parts_and_dev_kit_aliases_case_insensitively(
+    target_name: str, expected_ram_bytes: int,
+) -> None:
+    completed = _run_package("analyze", str(MODEL), "--target", target_name, "--json")
+    assert completed.returncode == EXIT_SUCCESS
+    budget = json.loads(completed.stdout)["arena_head_budget"]
+    assert budget["profile_ram_bytes"] == expected_ram_bytes
+    assert budget["status"] == "fits"
+    assert budget["source"] == "profile"
+
+
+def test_unknown_target_fails_clearly_and_lists_known_names() -> None:
+    completed = _run_package("analyze", str(MODEL), "--target", "STM32F4")
+    assert completed.returncode == EXIT_INPUT_ERROR
+    assert "Unknown target 'STM32F4'" in completed.stderr
+    assert "STM32U585" in completed.stderr
+    assert "nRF52840" in completed.stderr
+    assert "ESP32-S3" in completed.stderr
+    assert "CY8C624ABZI-S2D44" in completed.stderr
+
+
+def test_target_does_not_partially_or_fuzzy_match() -> None:
+    # A near-miss must fail, not silently resolve to the closest name.
+    completed = _run_package("analyze", str(MODEL), "--target", "STM32U58")
+    assert completed.returncode == EXIT_INPUT_ERROR
+    assert "Unknown target" in completed.stderr
+
+
+@pytest.mark.parametrize("other_flag", [["--mcu-profile", "cortex-m4-256k"], ["--arena-head-budget", "1MiB"]])
+def test_target_is_mutually_exclusive_with_mcu_profile_and_arena_head_budget(
+    other_flag: list[str],
+) -> None:
+    completed = _run_package("analyze", str(MODEL), "--target", "esp32-s3", *other_flag)
+    assert completed.returncode != EXIT_SUCCESS
+    assert "not allowed with argument" in completed.stderr
+
+
+def test_reserve_and_fail_on_budget_exceeded_both_accept_target() -> None:
+    # 262,144 byte target minus a 262,000 byte reserve leaves 144 bytes --
+    # MODEL's 128-byte head still fits that, so force conv0 (10,432 bytes)
+    # to actually exceed it and confirm --target reaches the same dedicated
+    # exit code --mcu-profile and --arena-head-budget already use.
+    exceeded = _run_package(
+        "analyze", str(CONV0_MODEL), "--target", "nrf52840",
+        "--reserve", "262000", "--fail-on-budget-exceeded",
+    )
+    fits = _run_package(
+        "analyze", str(MODEL), "--target", "nrf52840",
+        "--reserve", "262000", "--fail-on-budget-exceeded",
+    )
+    assert exceeded.returncode == EXIT_BUDGET_EXCEEDED
+    assert "EXCEEDS BUDGET (head only — 10,432 / 144 bytes" in exceeded.stdout
+    assert fits.returncode == EXIT_SUCCESS
+
+
+def test_reserve_without_mcu_profile_or_target_is_rejected() -> None:
+    completed = _run_package("analyze", str(MODEL), "--reserve", "1KiB")
+    assert completed.returncode == EXIT_INPUT_ERROR
+    assert "--reserve may be used only with --mcu-profile or --target" in completed.stderr
+
+
+def test_list_targets_subcommand_and_analyze_list_targets_agree() -> None:
+    subcommand = _run_package("list-targets")
+    analyze_flag = _run_package("analyze", "--list-targets")
+    assert subcommand.returncode == EXIT_SUCCESS
+    assert analyze_flag.returncode == EXIT_SUCCESS
+    assert subcommand.stdout == analyze_flag.stdout
+    assert "STM32U585" in subcommand.stdout
+    assert "nRF52840" in subcommand.stdout
+    assert "ESP32-S3" in subcommand.stdout
+    assert "CY8C624ABZI-S2D44" in subcommand.stdout
+    assert "--target" in subcommand.stdout
+
+
+def test_list_targets_needs_no_model() -> None:
+    completed = _run_package("list-targets")
+    assert completed.returncode == EXIT_SUCCESS
+
+
+def test_target_html_report_includes_the_inline_verdict(tmp_path: Path) -> None:
+    destination = tmp_path / "target-report.html"
+    completed = _run_package(
+        "analyze", str(MODEL), "--target", "STM32U585", "--html", str(destination),
+    )
+    assert completed.returncode == EXIT_SUCCESS
+    report = destination.read_text(encoding="utf-8")
+    assert "FITS (head only — 128 / 804,864 bytes" in report
+    assert "STM32U585" in report
+
+
+def test_target_verdict_cites_the_resolved_part_and_vendor_in_all_three_modes(
+    tmp_path: Path,
+) -> None:
+    expected_clause = "on STM32U585, per STMicroelectronics datasheet"
+
+    text = _run_package("analyze", str(MODEL), "--target", "STM32U585")
+    as_json = _run_package("analyze", str(MODEL), "--target", "STM32U585", "--json")
+    destination = tmp_path / "cited-report.html"
+    as_html = _run_package(
+        "analyze", str(MODEL), "--target", "STM32U585", "--html", str(destination),
+    )
+
+    assert expected_clause in text.stdout
+    assert expected_clause in json.loads(as_json.stdout)["arena_head_budget"]["verdict"]
+    assert expected_clause in destination.read_text(encoding="utf-8")
+
+
+def test_target_verdict_cites_correctly_when_resolved_via_a_dev_kit_alias() -> None:
+    # The citation names the resolved MCU, not the alias string the user typed.
+    completed = _run_package(
+        "analyze", str(MODEL), "--target", "Arduino Nano 33 BLE Sense", "--json",
+    )
+    verdict = json.loads(completed.stdout)["arena_head_budget"]["verdict"]
+    assert "on nRF52840, per Nordic Semiconductor datasheet" in verdict
+    assert "Arduino" not in verdict
+
+
+def test_arduino_nano_33_ble_without_sense_resolves_to_the_same_nrf52840_citation() -> None:
+    # Both boards are aliases of the same chip and must cite identically.
+    sense = _run_package(
+        "analyze", str(MODEL), "--target", "Arduino Nano 33 BLE Sense", "--json",
+    )
+    plain = _run_package(
+        "analyze", str(MODEL), "--target", "Arduino Nano 33 BLE", "--json",
+    )
+    sense_budget = json.loads(sense.stdout)["arena_head_budget"]
+    plain_budget = json.loads(plain.stdout)["arena_head_budget"]
+    assert sense_budget["verdict"] == plain_budget["verdict"]
+    assert sense_budget["profile_ram_bytes"] == plain_budget["profile_ram_bytes"] == 262144
+
+
+def test_psoc6_target_resolves_and_cites_infineon_via_either_name() -> None:
+    by_part = _run_package("analyze", str(MODEL), "--target", "CY8C624ABZI-S2D44", "--json")
+    by_kit = _run_package("analyze", str(MODEL), "--target", "CY8CKIT-062S2-AI", "--json")
+    part_budget = json.loads(by_part.stdout)["arena_head_budget"]
+    kit_budget = json.loads(by_kit.stdout)["arena_head_budget"]
+    assert part_budget["verdict"] == kit_budget["verdict"]
+    assert part_budget["profile_ram_bytes"] == 1048576
+    assert "on CY8C624ABZI-S2D44, per Infineon Technologies datasheet" in part_budget["verdict"]
+
+
+@pytest.mark.parametrize(
+    "budget_flags",
+    [
+        ["--mcu-profile", "cortex-m4-256k"],
+        ["--arena-head-budget", "1MiB"],
+    ],
+)
+def test_generic_budget_verdicts_carry_no_datasheet_citation(budget_flags: list[str]) -> None:
+    completed = _run_package("analyze", str(MODEL), *budget_flags, "--json")
+    verdict = json.loads(completed.stdout)["arena_head_budget"]["verdict"]
+    assert "datasheet" not in verdict
+    assert " per " not in verdict
 
 
 def test_analyze_text_renders_ranked_memory_guidance_and_disclaimers() -> None:

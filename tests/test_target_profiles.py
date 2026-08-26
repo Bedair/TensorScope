@@ -1,0 +1,384 @@
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from tensorscope.memory_budget import MCUProfile
+from tensorscope.target_profiles import (
+    TARGET_DISCLAIMER,
+    TARGET_USAGE_HINT,
+    ProfileSource,
+    TargetProfile,
+    TargetProfileError,
+    _check_for_collisions,
+    _parse_profile,
+    as_mcu_profile,
+    load_target_profiles,
+    render_target_listing,
+    render_target_verdict_clause,
+    resolve_target,
+)
+
+
+def _source(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "datasheet_title": "Example Datasheet",
+        "revision": None,
+        "section": None,
+        "page": None,
+        "url": None,
+    }
+    base.update(overrides)
+    return base
+
+
+def _profile_json(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "schema_version": 1,
+        "id": "example",
+        "mcu_part": "EXAMPLE-MCU",
+        "vendor": "Example Vendor",
+        "architecture": "Example Core",
+        "total_sram_bytes": 1024,
+        "dev_kit_aliases": ["EXAMPLE-DK"],
+        "source": _source(),
+        "notes": "",
+    }
+    base.update(overrides)
+    return base
+
+
+def _synthetic_profile(
+    *,
+    id: str = "example",
+    mcu_part: str = "EXAMPLE-MCU",
+    dev_kit_aliases: tuple[str, ...] = ("EXAMPLE-DK",),
+    file_name: str = "example.json",
+) -> TargetProfile:
+    return TargetProfile(
+        id=id,
+        mcu_part=mcu_part,
+        vendor="Example Vendor",
+        architecture="Example Core",
+        total_sram_bytes=1024,
+        dev_kit_aliases=dev_kit_aliases,
+        source=ProfileSource("Example Datasheet", None, None, None, None),
+        notes="",
+        default_firmware_reserve_bytes=None,
+        file_name=file_name,
+    )
+
+
+# --- Real bundled catalog -------------------------------------------------
+
+
+def test_bundled_catalog_loads_exactly_the_four_shipped_targets() -> None:
+    profiles = load_target_profiles()
+
+    assert {profile.id for profile in profiles} == {
+        "stm32u585", "nrf52840", "esp32-s3", "cy8c624abzi-s2d44",
+    }
+    assert len(profiles) == 4
+
+
+def test_bundled_catalog_is_sorted_by_file_name_and_deterministic() -> None:
+    first = load_target_profiles()
+    second = load_target_profiles()
+
+    assert first == second
+    assert [profile.file_name for profile in first] == sorted(
+        profile.file_name for profile in first
+    )
+
+
+@pytest.mark.parametrize(
+    ("target_id", "mcu_part", "total_sram_bytes", "vendor"),
+    [
+        ("stm32u585", "STM32U585", 804864, "STMicroelectronics"),
+        ("nrf52840", "nRF52840", 262144, "Nordic Semiconductor"),
+        ("esp32-s3", "ESP32-S3", 524288, "Espressif Systems"),
+        ("cy8c624abzi-s2d44", "CY8C624ABZI-S2D44", 1048576, "Infineon Technologies"),
+    ],
+)
+def test_each_shipped_target_has_the_expected_datasheet_figures(
+    target_id: str, mcu_part: str, total_sram_bytes: int, vendor: str,
+) -> None:
+    profiles = {profile.id: profile for profile in load_target_profiles()}
+    profile = profiles[target_id]
+
+    assert profile.mcu_part == mcu_part
+    assert profile.total_sram_bytes == total_sram_bytes
+    assert profile.vendor == vendor
+    assert profile.source.datasheet_title
+    # Every shipped profile must carry a real, non-empty citation title even
+    # when revision/section/page/url are honestly null rather than guessed.
+    assert profile.dev_kit_aliases
+
+
+def test_every_shipped_target_has_at_least_one_dev_kit_alias() -> None:
+    for profile in load_target_profiles():
+        assert len(profile.dev_kit_aliases) >= 1, profile.id
+
+
+# --- Resolution -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_id"),
+    [
+        ("STM32U585", "stm32u585"),
+        ("stm32u585", "stm32u585"),
+        ("  stm32u585  ", "stm32u585"),
+        ("NUCLEO-U575ZI-Q", "stm32u585"),
+        ("nucleo-u575zi-q", "stm32u585"),
+        ("nRF52840", "nrf52840"),
+        ("nrf52840-dk", "nrf52840"),
+        ("Arduino Nano 33 BLE", "nrf52840"),
+        ("arduino nano 33 ble", "nrf52840"),
+        ("Arduino Nano 33 BLE Sense", "nrf52840"),
+        ("arduino nano 33 ble sense", "nrf52840"),
+        ("Adafruit Feather nRF52840 Sense", "nrf52840"),
+        ("ESP32-S3", "esp32-s3"),
+        ("esp32-s3-devkitc-1", "esp32-s3"),
+        ("CY8C624ABZI-S2D44", "cy8c624abzi-s2d44"),
+        ("cy8c624abzi-s2d44", "cy8c624abzi-s2d44"),
+        ("CY8CKIT-062S2-AI", "cy8c624abzi-s2d44"),
+        ("cy8ckit-062s2-ai", "cy8c624abzi-s2d44"),
+    ],
+)
+def test_resolve_target_matches_id_mcu_part_and_alias_case_insensitively(
+    query: str, expected_id: str,
+) -> None:
+    assert resolve_target(query).id == expected_id
+
+
+def test_resolve_target_fails_clearly_on_unknown_name_no_fuzzy_matching() -> None:
+    with pytest.raises(TargetProfileError, match="Unknown target 'STM32F4'"):
+        resolve_target("STM32F4")
+
+
+def test_resolve_target_error_lists_every_known_name() -> None:
+    with pytest.raises(TargetProfileError) as excinfo:
+        resolve_target("does-not-exist")
+
+    message = str(excinfo.value)
+    for profile in load_target_profiles():
+        assert profile.mcu_part in message
+        for alias in profile.dev_kit_aliases:
+            assert alias in message
+
+
+def test_resolve_target_does_not_partially_or_prefix_match() -> None:
+    # "STM32U58" is a genuine prefix of "STM32U585" but must not resolve --
+    # exact match only, never a guess.
+    with pytest.raises(TargetProfileError):
+        resolve_target("STM32U58")
+
+
+def test_target_profile_error_is_a_value_error() -> None:
+    # So it flows through the CLI's existing input-error handling without a
+    # new except clause needing to be added.
+    assert issubclass(TargetProfileError, ValueError)
+
+
+# --- Adapter into the existing MCUProfile-shaped budget pipeline ------
+
+
+def test_as_mcu_profile_carries_ram_bytes_and_identity_through_unchanged() -> None:
+    target = resolve_target("esp32-s3")
+
+    adapted = as_mcu_profile(target)
+
+    assert isinstance(adapted, MCUProfile)
+    assert adapted.ram_bytes == target.total_sram_bytes == 524288
+    assert adapted.profile_id == target.id
+    assert target.mcu_part in adapted.display_name
+    assert target.vendor in adapted.display_name
+    assert "vendor_datasheet" == adapted.source_classification
+
+
+def test_as_mcu_profile_notes_cite_the_source_when_revision_present() -> None:
+    target = resolve_target("esp32-s3")
+
+    adapted = as_mcu_profile(target)
+
+    assert target.source.datasheet_title in adapted.notes
+    assert target.source.revision in adapted.notes
+
+
+def test_as_mcu_profile_omits_revision_from_citation_when_null() -> None:
+    target = resolve_target("nrf52840")
+    assert target.source.revision is None
+
+    adapted = as_mcu_profile(target)
+
+    assert adapted.notes == f"Source: {target.source.datasheet_title}"
+
+
+# --- Inline verdict citation clause --------------------------------------
+
+
+def test_render_target_verdict_clause_names_the_part_and_vendor() -> None:
+    target = resolve_target("stm32u585")
+
+    clause = render_target_verdict_clause(target)
+
+    assert clause == "on STM32U585, per STMicroelectronics datasheet"
+
+
+@pytest.mark.parametrize("target_id", ["stm32u585", "nrf52840", "esp32-s3", "cy8c624abzi-s2d44"])
+def test_render_target_verdict_clause_covers_every_shipped_target(target_id: str) -> None:
+    profiles = {profile.id: profile for profile in load_target_profiles()}
+    target = profiles[target_id]
+
+    clause = render_target_verdict_clause(target)
+
+    assert clause == f"on {target.mcu_part}, per {target.vendor} datasheet"
+    assert "datasheet" in clause
+
+
+# --- Listing ------------------------------------------------------------
+
+
+def test_render_target_listing_includes_every_target_and_usage_hint() -> None:
+    listing = render_target_listing()
+
+    for profile in load_target_profiles():
+        assert profile.mcu_part in listing
+        assert str(profile.total_sram_bytes) in listing
+        for alias in profile.dev_kit_aliases:
+            assert alias in listing
+    assert TARGET_DISCLAIMER in listing
+    assert TARGET_USAGE_HINT in listing
+    assert "--target" in listing
+
+
+# --- Schema validation (via the parsing function directly -- this is the
+# core validation logic with many independent failure branches, better
+# covered granularly than only indirectly through file I/O) ---------------
+
+
+def test_parse_profile_accepts_a_well_formed_minimal_profile() -> None:
+    profile = _parse_profile("example.json", json.dumps(_profile_json()))
+
+    assert profile.id == "example"
+    assert profile.default_firmware_reserve_bytes is None
+
+
+@pytest.mark.parametrize(
+    ("mutation", "match"),
+    [
+        (lambda d: d.pop("mcu_part"), "missing required field"),
+        (lambda d: d.pop("source"), "missing required field"),
+        (lambda d: d.update(schema_version=2), "unsupported schema_version"),
+        (lambda d: d.update(id=""), "id.*non-empty string"),
+        (lambda d: d.update(id=123), "id.*non-empty string"),
+        (lambda d: d.update(total_sram_bytes=0), "total_sram_bytes must be a positive integer"),
+        (lambda d: d.update(total_sram_bytes=-1), "total_sram_bytes must be a positive integer"),
+        (lambda d: d.update(total_sram_bytes=1.5), "total_sram_bytes must be a positive integer"),
+        (lambda d: d.update(total_sram_bytes=True), "total_sram_bytes must be a positive integer"),
+        (lambda d: d.update(dev_kit_aliases="EXAMPLE-DK"), "dev_kit_aliases must be a list"),
+        (lambda d: d.update(dev_kit_aliases=[""]), "dev_kit_aliases must be a list"),
+        (lambda d: d.update(dev_kit_aliases=[1]), "dev_kit_aliases must be a list"),
+        (lambda d: d.update(notes=None), "'notes' must be a string"),
+        (lambda d: d.update(default_firmware_reserve_bytes=-1), "default_firmware_reserve_bytes"),
+    ],
+)
+def test_parse_profile_rejects_malformed_top_level_fields(mutation, match: str) -> None:
+    data = _profile_json()
+    mutation(data)
+
+    with pytest.raises(TargetProfileError, match=match):
+        _parse_profile("example.json", json.dumps(data))
+
+
+@pytest.mark.parametrize(
+    ("source_mutation", "match"),
+    [
+        (lambda s: s.pop("revision"), "source missing field"),
+        (lambda s: s.update(datasheet_title=""), "datasheet_title.*non-empty string"),
+        (lambda s: s.update(revision=123), r"source\.revision must be a string or null"),
+        (lambda s: s.update(section=123), r"source\.section must be a string or null"),
+        (lambda s: s.update(url=123), r"source\.url must be a string or null"),
+        (lambda s: s.update(page="38"), r"source\.page must be an integer or null"),
+        (lambda s: s.update(page=1.5), r"source\.page must be an integer or null"),
+    ],
+)
+def test_parse_profile_rejects_malformed_source_fields(source_mutation, match: str) -> None:
+    data = _profile_json()
+    source_mutation(data["source"])
+
+    with pytest.raises(TargetProfileError, match=match):
+        _parse_profile("example.json", json.dumps(data))
+
+
+def test_parse_profile_rejects_invalid_json() -> None:
+    with pytest.raises(TargetProfileError, match="invalid JSON"):
+        _parse_profile("example.json", "{not json")
+
+
+def test_parse_profile_rejects_a_json_array_at_top_level() -> None:
+    with pytest.raises(TargetProfileError, match="must be a JSON object"):
+        _parse_profile("example.json", "[]")
+
+
+def test_parse_profile_accepts_a_fully_null_source_except_title() -> None:
+    # Exactly the shape used for nRF52840/STM32U585 today: title present,
+    # everything else honestly null rather than guessed.
+    data = _profile_json(source=_source(revision=None, section=None, page=None, url=None))
+
+    profile = _parse_profile("example.json", json.dumps(data))
+
+    assert profile.source.revision is None
+    assert profile.source.section is None
+    assert profile.source.page is None
+    assert profile.source.url is None
+
+
+# --- Catalog-wide ambiguity detection -------------------------------------
+
+
+def test_check_for_collisions_accepts_a_catalog_with_no_overlap() -> None:
+    profiles = [
+        _synthetic_profile(id="a", mcu_part="MCU-A", dev_kit_aliases=("DK-A",), file_name="a.json"),
+        _synthetic_profile(id="b", mcu_part="MCU-B", dev_kit_aliases=("DK-B",), file_name="b.json"),
+    ]
+    _check_for_collisions(profiles)  # must not raise
+
+
+def test_check_for_collisions_rejects_duplicate_ids() -> None:
+    profiles = [
+        _synthetic_profile(id="dup", mcu_part="MCU-A", file_name="a.json"),
+        _synthetic_profile(id="dup", mcu_part="MCU-B", file_name="b.json"),
+    ]
+    with pytest.raises(TargetProfileError, match="Ambiguous target name 'dup'"):
+        _check_for_collisions(profiles)
+
+
+def test_check_for_collisions_rejects_alias_colliding_with_another_mcu_part() -> None:
+    profiles = [
+        _synthetic_profile(id="a", mcu_part="SHARED-NAME", file_name="a.json"),
+        _synthetic_profile(
+            id="b", mcu_part="MCU-B", dev_kit_aliases=("SHARED-NAME",), file_name="b.json",
+        ),
+    ]
+    with pytest.raises(TargetProfileError, match="Ambiguous target name"):
+        _check_for_collisions(profiles)
+
+
+def test_check_for_collisions_is_case_insensitive() -> None:
+    profiles = [
+        _synthetic_profile(id="a", mcu_part="Shared-Name", file_name="a.json"),
+        _synthetic_profile(
+            id="b", mcu_part="MCU-B", dev_kit_aliases=("shared-name",), file_name="b.json",
+        ),
+    ]
+    with pytest.raises(TargetProfileError, match="Ambiguous target name"):
+        _check_for_collisions(profiles)
+
+
+def test_the_real_shipped_catalog_has_no_collisions() -> None:
+    # load_target_profiles() already runs this at load time; asserting it
+    # here directly documents the invariant against the real bundled files.
+    _check_for_collisions(list(load_target_profiles()))

@@ -1,7 +1,8 @@
 # MCU arena-head budget checks
 
-TensorScope can compare the statically planned arena head with either a direct
-byte budget or a generic MCU planning profile:
+TensorScope can compare the statically planned arena head with a direct byte
+budget, a generic MCU planning profile, or a real per-vendor MCU/dev-kit
+target:
 
 ```console
 python -m tensorscope analyze model.tflite --arena-head-budget 64KiB
@@ -29,6 +30,40 @@ does not define a fixed RAM capacity.
 profile RAM is valid and produces a zero-byte effective budget. For a zero-byte
 budget, zero planned bytes is an exact fit and any nonzero plan exceeds; utilization
 is reported as null/not defined to avoid division by zero.
+
+## Real per-vendor targets
+
+`--mcu-profile` is deliberately generic -- five Cortex-class RAM tiers, no
+part names. `--target <name>` is the separate, additive alternative: it
+resolves against real MCU part numbers and dev-kit board names, each sourced
+from a vendor datasheet or reference manual, not a rounded class estimate.
+
+```console
+python -m tensorscope analyze model.tflite --target STM32U585
+python -m tensorscope analyze model.tflite --target NUCLEO-U575ZI-Q
+python -m tensorscope analyze model.tflite --target "Arduino Nano 33 BLE Sense" --reserve 64KiB
+python -m tensorscope analyze --list-targets
+```
+
+Matching is case-insensitive and exact against a profile's MCU part number,
+internal id, or any of its dev-kit aliases (a dev-kit name is a pure alias
+for its MCU's data, not a separate figure) -- never partial, prefix, or
+fuzzy. An unrecognized name is a hard error listing every known part and
+alias; it is never guessed.
+
+`--target` shares the exact same evaluation, `--reserve` handling,
+`--fail-on-budget-exceeded` behavior, and text/JSON/HTML rendering as
+`--mcu-profile` -- it is mutually exclusive with `--mcu-profile` and
+`--arena-head-budget`, not a replacement for either.
+
+Profiles are data, not code: each one is a JSON file under
+`src/tensorscope/profiles/mcu/`, validated at load time (a malformed file or
+a name that collides with another profile's id/part/alias is a hard error,
+never silently skipped or silently resolved). Adding a part means adding a
+file, not editing Python. Every field, including the `total_sram_bytes`
+figure's exact datasheet citation (title, revision, section, page, URL --
+`null` where a fetch genuinely couldn't confirm one rather than a guess), is
+in the JSON and inspectable directly.
 
 JSON and `--html PATH` include the same structured evaluation. By default an
 exceeded budget is informational and exits successfully. Add
