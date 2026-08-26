@@ -59,16 +59,19 @@ def load_tflite_model(
     if len(data) < 8:
         raise TFLiteModelError(
             "File is too small to be a TFLite model: "
-            f"{path}"
+            f"{path} ({len(data)} bytes). Check that the file "
+            "downloaded, exported, or copied completely."
         )
 
     identifier = data[4:8]
 
     if identifier != TFLITE_FILE_IDENTIFIER:
         raise TFLiteModelError(
-            "Invalid TFLite file identifier: "
-            f"expected {TFLITE_FILE_IDENTIFIER!r}, "
-            f"got {identifier!r}"
+            f"{path} does not look like a valid TFLite model file. "
+            "Invalid TFLite file identifier: expected "
+            f"{TFLITE_FILE_IDENTIFIER!r}, got {identifier!r}. Check that "
+            "this is a real .tflite file, not a different format (such as "
+            "a .pb or .h5 model) or a partial/corrupted download."
         )
 
     try:
@@ -78,14 +81,16 @@ def load_tflite_model(
         )
     except Exception as error:
         raise TFLiteModelError(
-            "Unable to parse TFLite FlatBuffer: "
-            f"{path}"
+            f"{path} has the right file marker but its contents could not "
+            "be parsed as a TFLite model. It may be truncated, corrupted, "
+            "or built with an incompatible converter version."
         ) from error
 
     if model.SubgraphsLength() == 0:
         raise TFLiteModelError(
-            "TFLite model contains no subgraphs: "
-            f"{path}"
+            f"{path} is a valid TFLite file but contains no subgraphs, so "
+            "there is nothing to analyze. It may be an empty or "
+            "placeholder model."
         )
 
     return LoadedModel(
