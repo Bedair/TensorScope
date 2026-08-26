@@ -32,9 +32,11 @@ CONV0_MODEL = Path(__file__).parent / "model_corpus" / "models" / "conv0.tflite"
 MICRO_SPEECH_MODEL = Path(__file__).parent / "model_corpus" / "models" / "micro_speech_quantized.tflite"
 REPOSITORY_ROOT = Path(__file__).parents[1]
 ORACLE_EXECUTABLE = REPOSITORY_ROOT / "tools" / "tflm_oracle" / "build" / "tflm_oracle"
-# Real, already-vendored single-operator fixture whose op (PAD) TFLM
-# genuinely implements but the oracle's narrow resolver has not
-# registered -- see tests/oracle/test_tflm_oracle.py for why this one.
+# Real, already-vendored fixture whose op (UNIDIRECTIONAL_SEQUENCE_LSTM)
+# TFLM genuinely implements but the oracle's resolver has not registered.
+# PAD used to serve this role, but the corpus expansion registered it (see
+# tests/model_corpus/models/pad0.tflite) so it no longer demonstrates a
+# coverage gap -- see tests/oracle/test_tflm_oracle.py for why this one.
 UNREGISTERED_OPERATOR_MODEL = (
     REPOSITORY_ROOT
     / "third_party"
@@ -42,10 +44,9 @@ UNREGISTERED_OPERATOR_MODEL = (
     / "tensorflow"
     / "lite"
     / "micro"
-    / "integration_tests"
-    / "seanet"
-    / "pad"
-    / "pad0.tflite"
+    / "examples"
+    / "mnist_lstm"
+    / "trained_lstm_int8.tflite"
 )
 
 

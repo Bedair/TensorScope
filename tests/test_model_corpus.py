@@ -20,6 +20,11 @@ REQUIRED_MODELS = {
     "micro_speech_quantized.tflite",
     "operator_chain_float.tflite",
     "quantize_dequantize_int8.tflite",
+    "pad0.tflite",
+    "strided_slice0.tflite",
+    "sub0.tflite",
+    "leaky_relu22.tflite",
+    "residual_add_float.tflite",
 }
 
 
@@ -45,11 +50,11 @@ def test_manifest_schema_version() -> None:
     assert manifest["schema_version"] == 1
 
 
-def test_manifest_contains_seven_models() -> None:
+def test_manifest_contains_twelve_models() -> None:
     manifest = load_manifest()
 
-    assert manifest["model_count"] == 7
-    assert len(manifest["models"]) == 7
+    assert manifest["model_count"] == 12
+    assert len(manifest["models"]) == 12
 
 
 def test_required_models_exist() -> None:

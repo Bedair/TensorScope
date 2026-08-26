@@ -13,7 +13,7 @@ namespace {
 
 constexpr std::size_t kTensorArenaSize = 2 * 1024 * 1024;
 constexpr std::size_t kArenaAlignment = 16;
-constexpr int kResolverCapacity = 14;
+constexpr int kResolverCapacity = 19;
 constexpr const char* kTflmRevision =
     "b89fb3e06e59d2f6af67e758242243da599bfedf";
 
@@ -150,6 +150,11 @@ TfLiteStatus RegisterCorpusOperators(
   REGISTER_TARGET(AddLogistic, "LOGISTIC")
   REGISTER_TARGET(AddQuantize, "QUANTIZE")
   REGISTER_TARGET(AddDequantize, "DEQUANTIZE")
+  REGISTER_TARGET(AddPad, "PAD")
+  REGISTER_TARGET(AddStridedSlice, "STRIDED_SLICE")
+  REGISTER_TARGET(AddSub, "SUB")
+  REGISTER_TARGET(AddTransposeConv, "TRANSPOSE_CONV")
+  REGISTER_TARGET(AddLeakyRelu, "LEAKY_RELU")
 #undef REGISTER_TARGET
 
   return kTfLiteOk;
@@ -164,6 +169,9 @@ bool IsRegisteredBuiltin(tflite::BuiltinOperator code) {
     case tflite::BuiltinOperator_FULLY_CONNECTED: case tflite::BuiltinOperator_RELU:
     case tflite::BuiltinOperator_RELU6: case tflite::BuiltinOperator_LOGISTIC:
     case tflite::BuiltinOperator_QUANTIZE: case tflite::BuiltinOperator_DEQUANTIZE:
+    case tflite::BuiltinOperator_PAD: case tflite::BuiltinOperator_STRIDED_SLICE:
+    case tflite::BuiltinOperator_SUB: case tflite::BuiltinOperator_TRANSPOSE_CONV:
+    case tflite::BuiltinOperator_LEAKY_RELU:
       return true;
     default: return false;
   }

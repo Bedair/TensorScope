@@ -69,7 +69,15 @@ def test_hello_world_float_is_exact_match() -> None:
 
 @pytest.mark.parametrize(
     ("model_name", "expected_head"),
-    [("operator_chain_float.tflite", 128), ("quantize_dequantize_int8.tflite", 48)],
+    [
+        ("operator_chain_float.tflite", 128),
+        ("quantize_dequantize_int8.tflite", 48),
+        ("pad0.tflite", 2608),
+        ("strided_slice0.tflite", 9296),
+        ("sub0.tflite", 6272),
+        ("leaky_relu22.tflite", 10240),
+        ("residual_add_float.tflite", 192),
+    ],
 )
 def test_operator_coverage_models_are_exact_matches(
     model_name: str, expected_head: int,
@@ -79,6 +87,18 @@ def test_operator_coverage_models_are_exact_matches(
     assert result.tflm_head == expected_head
     assert result.head_delta == 0
     assert result.exact_match
+
+
+def test_residual_block_demonstrates_skip_connection_reuse_blocking() -> None:
+    """The skip connection is the point of this fixture: the graph input is
+    read again by the final ADD after an unrelated CONV_2D runs in between,
+    so it must stay live across that operator and cannot hand its slot to
+    anything -- the exact scenario explain.py's ReuseBlocker documents."""
+
+    result = validate_model_against_tflm(CORPUS_ROOT / "residual_add_float.tflite")
+
+    assert result.exact_match
+    assert result.tensorscope_head == 192
 
 
 def test_validation_matrix_is_deterministic_and_exact() -> None:

@@ -32,12 +32,15 @@ CORPUS_ROOT = (
     / "models"
 )
 
-# A real, already-vendored, single-operator PAD fixture from the pinned TFLM
-# tree. PAD is genuinely implemented by TFLM (see
-# third_party/tflite-micro/tensorflow/lite/micro/kernels/pad.cc) but is not
-# in the oracle's narrow resolver allowlist, so this reliably exercises the
-# "unregistered_operator" (coverage gap) path against the real oracle binary
-# without needing to build a new fixture.
+# A real, already-vendored fixture from the pinned TFLM tree using an
+# operator the oracle still doesn't register. PAD and STRIDED_SLICE used to
+# serve this role, but both are now registered (see the corpus expansion
+# that added pad0.tflite/strided_slice0.tflite to tests/model_corpus) so
+# they no longer demonstrate a coverage gap. UNIDIRECTIONAL_SEQUENCE_LSTM
+# is genuinely implemented by TFLM (see
+# third_party/tflite-micro/tensorflow/lite/micro/kernels/unidirectional_sequence_lstm.cc)
+# but still isn't in the oracle's resolver, so this reliably exercises the
+# "unregistered_operator" (coverage gap) path without needing a new fixture.
 UNREGISTERED_OPERATOR_FIXTURE = (
     REPOSITORY_ROOT
     / "third_party"
@@ -45,10 +48,9 @@ UNREGISTERED_OPERATOR_FIXTURE = (
     / "tensorflow"
     / "lite"
     / "micro"
-    / "integration_tests"
-    / "seanet"
-    / "pad"
-    / "pad0.tflite"
+    / "examples"
+    / "mnist_lstm"
+    / "trained_lstm_int8.tflite"
 )
 
 
@@ -277,6 +279,11 @@ def test_inconsistent_head_and_tail_are_rejected() -> None:
         ),
         ("operator_chain_float.tflite", 128, 2704, 2832),
         ("quantize_dequantize_int8.tflite", 48, 880, 928),
+        ("pad0.tflite", 2608, 880, 3488),
+        ("strided_slice0.tflite", 9296, 976, 10272),
+        ("sub0.tflite", 6272, 976, 7248),
+        ("leaky_relu22.tflite", 10240, 832, 11072),
+        ("residual_add_float.tflite", 192, 1344, 1536),
     ],
 )
 def test_oracle_matches_recorded_corpus_results(
@@ -361,11 +368,12 @@ def test_classify_oracle_incompatibility(
     ),
 )
 def test_unregistered_operator_is_a_real_coverage_gap_not_a_mock() -> None:
-    """PAD is a real TFLM kernel; the oracle just hasn't registered it.
+    """UNIDIRECTIONAL_SEQUENCE_LSTM is a real TFLM kernel; the oracle just
+    hasn't registered it.
 
     This exercises the "unregistered_operator" classification against the
-    actual compiled oracle binary, using a genuine single-operator fixture
-    already vendored in the pinned TFLM tree -- no synthetic model needed.
+    actual compiled oracle binary, using a genuine fixture already vendored
+    in the pinned TFLM tree -- no synthetic model needed.
     """
 
     with pytest.raises(TFLMOracleError) as excinfo:
@@ -375,4 +383,4 @@ def test_unregistered_operator_is_a_real_coverage_gap_not_a_mock() -> None:
         )
 
     assert excinfo.value.category == UNREGISTERED_OPERATOR
-    assert "builtin opcode 34" in str(excinfo.value)  # 34 == BuiltinOperator.PAD
+    assert "builtin opcode 44" in str(excinfo.value)  # 44 == BuiltinOperator.UNIDIRECTIONAL_SEQUENCE_LSTM

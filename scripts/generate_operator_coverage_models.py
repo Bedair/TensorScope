@@ -133,7 +133,63 @@ def generate_quantize_dequantize() -> None:
     _write("quantize_dequantize_int8.tflite", model)
 
 
+def generate_residual_block() -> None:
+    """A minimal skip connection: conv -> conv -> add-with-earlier-tensor.
+
+    The graph input feeds op0 (CONV_2D) and is read again, unmodified, by
+    op2 (ADD) after an unrelated op1 (CONV_2D) runs in between. That keeps
+    the input tensor live across an operator that doesn't touch it at all,
+    the same pattern documented by explain.py's ReuseBlocker: a tensor
+    that survives a branch and therefore cannot hand its memory to
+    anything allocated while it's still needed downstream.
+    """
+
+    codes = [
+        s.OperatorCodeT(deprecatedBuiltinCode=s.BuiltinOperator.CONV_2D,
+                        builtinCode=s.BuiltinOperator.CONV_2D, version=1),
+        s.OperatorCodeT(deprecatedBuiltinCode=s.BuiltinOperator.ADD,
+                        builtinCode=s.BuiltinOperator.ADD, version=1),
+    ]
+    buffers = [
+        _buffer(),
+        _buffer(struct.pack("<f", 1.0)),
+        _buffer(struct.pack("<f", 0.0)),
+        _buffer(struct.pack("<f", 1.0)),
+        _buffer(struct.pack("<f", 0.0)),
+    ]
+    tensors = [
+        _tensor("input", [1, 4, 4, 1]),
+        _tensor("conv1_weights", [1, 1, 1, 1], 1),
+        _tensor("conv1_bias", [1], 2),
+        _tensor("conv1_out", [1, 4, 4, 1]),
+        _tensor("conv2_weights", [1, 1, 1, 1], 3),
+        _tensor("conv2_bias", [1], 4),
+        _tensor("conv2_out", [1, 4, 4, 1]),
+        _tensor("output", [1, 4, 4, 1]),
+    ]
+    none = s.ActivationFunctionType.NONE
+    conv_options = dict(padding=s.Padding.SAME, strideW=1, strideH=1,
+                        dilationWFactor=1, dilationHFactor=1, fusedActivationFunction=none)
+    specifications = [
+        (0, [0, 1, 2], [3], "Conv2DOptions", conv_options),
+        (0, [3, 4, 5], [6], "Conv2DOptions", conv_options),
+        (1, [6, 0], [7], "AddOptions", dict(fusedActivationFunction=none)),
+    ]
+    operators = []
+    for opcode, inputs, outputs, option_name, values in specifications:
+        options = _option(option_name, **values)
+        option_type = getattr(s.BuiltinOptions, option_name)
+        operators.append(s.OperatorT(opcodeIndex=opcode, inputs=inputs, outputs=outputs,
+                                     builtinOptionsType=option_type, builtinOptions=options))
+    model = s.ModelT(version=3, operatorCodes=codes,
+                     subgraphs=[s.SubGraphT(tensors=tensors, inputs=[0], outputs=[7], operators=operators, name="main")],
+                     description="TensorScope reproducible skip-connection reuse-blocker coverage",
+                     buffers=buffers)
+    _write("residual_add_float.tflite", model)
+
+
 if __name__ == "__main__":
     OUTPUT.mkdir(parents=True, exist_ok=True)
     generate_float_chain()
     generate_quantize_dequantize()
+    generate_residual_block()

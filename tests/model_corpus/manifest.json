@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "TensorScope MVP model validation corpus.",
-  "model_count": 7,
+  "model_count": 12,
   "models": [
     {
       "name": "operator_chain_float.tflite",
@@ -124,6 +124,97 @@
         "minimal parser validation",
         "single-operator graph validation",
         "tensor lifetime validation"
+      ]
+    },
+    {
+      "name": "pad0.tflite",
+      "path": "tests/model_corpus/models/pad0.tflite",
+      "size_bytes": 784,
+      "sha256": "592f48bb46f923cae41bf8362e830568f2e0bf7c36f579e98888520a0d6d0482",
+      "description": "Single-operator PAD integration-test model from TFLM.",
+      "source": "third_party/tflite-micro/tensorflow/lite/micro/integration_tests/seanet/pad/pad0.tflite",
+      "category": "single-operator",
+      "quantization": "unknown",
+      "expected_operators": [
+        "PAD"
+      ],
+      "expected_use": [
+        "PAD parser validation",
+        "operator-coverage gap closure",
+        "memory-planner validation"
+      ]
+    },
+    {
+      "name": "strided_slice0.tflite",
+      "path": "tests/model_corpus/models/strided_slice0.tflite",
+      "size_bytes": 1128,
+      "sha256": "231a09c55aad7d7e1497f8b5c276fbf383488f42307bc840ba59423630acfdea",
+      "description": "Single-operator STRIDED_SLICE integration-test model from TFLM.",
+      "source": "third_party/tflite-micro/tensorflow/lite/micro/integration_tests/seanet/strided_slice/strided_slice0.tflite",
+      "category": "single-operator",
+      "quantization": "unknown",
+      "expected_operators": [
+        "STRIDED_SLICE"
+      ],
+      "expected_use": [
+        "STRIDED_SLICE parser validation",
+        "operator-coverage gap closure",
+        "memory-planner validation"
+      ]
+    },
+    {
+      "name": "sub0.tflite",
+      "path": "tests/model_corpus/models/sub0.tflite",
+      "size_bytes": 864,
+      "sha256": "f1e2eac1de6716bb341d5bd2ccbad6e0a5ab887c2c25660a29d388ad57690159",
+      "description": "Single-operator SUB integration-test model from TFLM.",
+      "source": "third_party/tflite-micro/tensorflow/lite/micro/integration_tests/seanet/sub/sub0.tflite",
+      "category": "single-operator",
+      "quantization": "unknown",
+      "expected_operators": [
+        "SUB"
+      ],
+      "expected_use": [
+        "SUB parser validation",
+        "operator-coverage gap closure",
+        "memory-planner validation"
+      ]
+    },
+    {
+      "name": "leaky_relu22.tflite",
+      "path": "tests/model_corpus/models/leaky_relu22.tflite",
+      "size_bytes": 624,
+      "sha256": "fe650d659e55cf5c81d93a7b1745d879f4c255c1fd254f19e68f67dbd8a9b471",
+      "description": "Single-operator LEAKY_RELU integration-test model from TFLM.",
+      "source": "third_party/tflite-micro/tensorflow/lite/micro/integration_tests/seanet/leaky_relu/leaky_relu22.tflite",
+      "category": "single-operator",
+      "quantization": "unknown",
+      "expected_operators": [
+        "LEAKY_RELU"
+      ],
+      "expected_use": [
+        "LEAKY_RELU parser validation",
+        "operator-coverage gap closure",
+        "memory-planner validation"
+      ]
+    },
+    {
+      "name": "residual_add_float.tflite",
+      "path": "tests/model_corpus/models/residual_add_float.tflite",
+      "size_bytes": 1000,
+      "sha256": "feaeed9ba11fd8e4f4fe11c750a92c49940dd8b9a37d907ef3ae8b469b701e3d",
+      "description": "Reproducible float32 skip-connection block (conv -> conv -> add-with-earlier-tensor) demonstrating a tensor that stays alive across a branch and blocks reuse.",
+      "source": "scripts/generate_operator_coverage_models.py",
+      "category": "reuse-pattern",
+      "quantization": "float32",
+      "expected_operators": ["CONV_2D", "ADD"],
+      "tensor_types": ["FLOAT32"],
+      "expected_tensorscope_head": 192,
+      "expected_tflm_head": 192,
+      "expected_use": [
+        "skip-connection reuse-blocker demonstration",
+        "memory-explanation validation",
+        "ReuseBlocker documentation coverage"
       ]
     }
   ]
