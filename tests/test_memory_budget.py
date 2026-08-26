@@ -8,10 +8,13 @@ from tensorscope.memory_budget import (
     MCU_PROFILES,
     PROFILE_DISCLAIMER,
     PROFILE_SOURCE,
+    PROFILE_USAGE_HINT,
     evaluate_direct_budget,
     evaluate_profile_budget,
     get_mcu_profile,
     parse_size,
+    render_budget_verdict,
+    render_profile_listing,
 )
 
 
@@ -102,7 +105,38 @@ def test_serialization_is_deterministic() -> None:
     expected_keys = [
         "source", "profile_id", "profile_name", "profile_ram_bytes", "reserve_bytes",
         "effective_budget_bytes", "planned_arena_head_bytes", "remaining_bytes",
-        "utilization_ratio", "utilization_percent", "status", "scope",
+        "utilization_ratio", "utilization_percent", "status", "scope", "verdict",
     ]
     assert list(result.to_dict()) == expected_keys
     assert json.dumps(result.to_dict()) == json.dumps(result.to_dict())
+
+
+def test_profile_listing_points_at_how_to_use_a_profile() -> None:
+    listing = render_profile_listing()
+
+    assert PROFILE_USAGE_HINT in listing
+    assert "--mcu-profile" in listing
+    assert "--arena-head-budget" in listing
+    # The hint comes after the enumerated profiles and the disclaimer, not
+    # buried in the middle of the profile table.
+    assert listing.index(PROFILE_DISCLAIMER) < listing.index(PROFILE_USAGE_HINT)
+
+
+@pytest.mark.parametrize(
+    ("planned", "budget", "expected_label"),
+    [(127, 128, "FITS"), (128, 128, "EXACT FIT"), (129, 128, "EXCEEDS BUDGET")],
+)
+def test_verdict_states_head_only_scope_inline_and_points_to_validate(
+    planned: int, budget: int, expected_label: str,
+) -> None:
+    result = evaluate_direct_budget(planned, budget)
+
+    verdict = render_budget_verdict(result)
+
+    assert verdict.startswith(expected_label)
+    assert "head only" in verdict
+    assert f"{planned:,}" in verdict
+    assert f"{budget:,}" in verdict
+    assert "tail is not estimated" in verdict
+    assert "tensorscope validate" in verdict
+    assert result.to_dict()["verdict"] == verdict

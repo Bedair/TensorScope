@@ -9,6 +9,10 @@ PROFILE_DISCLAIMER = (
     "These are generic planning presets, not specifications for every MCU using "
     "the named processor core."
 )
+PROFILE_USAGE_HINT = (
+    "Check a model against one: `tensorscope analyze MODEL --mcu-profile <id>` "
+    "(or --arena-head-budget SIZE for a direct byte budget instead of a profile)."
+)
 PROFILE_SOURCE = "generic_planning_preset"
 
 
@@ -92,7 +96,32 @@ class ArenaHeadBudgetResult:
             "utilization_percent": self.utilization_percent,
             "status": self.status,
             "scope": self.scope,
+            "verdict": render_budget_verdict(self),
         }
+
+
+_BUDGET_STATUS_LABELS: dict[BudgetStatus, str] = {
+    "fits": "FITS",
+    "exact_fit": "EXACT FIT",
+    "exceeds": "EXCEEDS BUDGET",
+}
+
+
+def render_budget_verdict(budget: ArenaHeadBudgetResult) -> str:
+    """Render the FITS/EXACT FIT/EXCEEDS BUDGET verdict with its arena-head-only
+    scope stated inline, so the caveat cannot be missed at the point the verdict
+    itself is read -- not only in a separate field elsewhere in the same result.
+
+    Shared by text, JSON (via to_dict), and HTML rendering so the wording can't
+    drift between them.
+    """
+
+    label = _BUDGET_STATUS_LABELS[budget.status]
+    return (
+        f"{label} (head only — {budget.planned_arena_head_bytes:,} / "
+        f"{budget.effective_budget_bytes:,} bytes; arena tail is not estimated "
+        "here — run `tensorscope validate` for an oracle-observed tail)"
+    )
 
 
 def _evaluate(
@@ -156,4 +185,4 @@ def render_profile_listing() -> str:
         f"{profile.profile_id}\t{profile.display_name}\t{profile.ram_bytes} bytes"
         for profile in MCU_PROFILES
     ]
-    return "\n".join((*lines, PROFILE_DISCLAIMER))
+    return "\n".join((*lines, PROFILE_DISCLAIMER, PROFILE_USAGE_HINT))

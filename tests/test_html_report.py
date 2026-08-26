@@ -170,7 +170,8 @@ def test_budget_section_renders_every_textual_status(planned: int, budget: int, 
         generated_at=FIXED_TIME, budget=evaluate_direct_budget(planned, budget),
     )
     assert '<section id="arena-head-budget">' in report
-    assert f"Arena-head budget result: {label}" in report
+    assert f"Arena-head budget result: {label} (head only —" in report
+    assert "tensorscope validate" in report
     assert "This check covers planned arena head only." in report
     assert "This is not a complete MCU or firmware memory-fit conclusion." in report
     assert '<svg id="arena-packing-svg"' in report

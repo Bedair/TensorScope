@@ -267,6 +267,11 @@ def test_profile_reserve_appears_in_json() -> None:
         "planned_arena_head_bytes": 128, "remaining_bytes": 196480,
         "utilization_ratio": 128 / 196608, "utilization_percent": 128 / 196608 * 100,
         "status": "fits", "scope": "arena_head",
+        "verdict": (
+            "FITS (head only — 128 / 196,608 bytes; arena tail is not "
+            "estimated here — run `tensorscope validate` for an "
+            "oracle-observed tail)"
+        ),
     }
 
 
@@ -299,13 +304,27 @@ def test_profile_listing_needs_no_model_and_is_deterministic() -> None:
     assert first.stdout == second.stdout
     assert "cortex-m0-32k\tCortex-M0 class — 32 KiB RAM\t32768 bytes" in first.stdout
     assert "generic planning presets, not specifications" in first.stdout
+    assert "analyze MODEL --mcu-profile" in first.stdout
+
+
+def test_list_profiles_subcommand_also_points_at_mcu_profile_usage() -> None:
+    completed = _run_package("list-profiles")
+    assert completed.returncode == EXIT_SUCCESS
+    assert "analyze MODEL --mcu-profile" in completed.stdout
+
+
+def test_help_text_points_list_mcu_profiles_at_mcu_profile() -> None:
+    completed = _run_package("analyze", "--help")
+    assert completed.returncode == EXIT_SUCCESS
+    assert "--mcu-profile <id>" in completed.stdout
 
 
 def test_fail_on_exceeded_uses_dedicated_code_but_exact_fit_succeeds() -> None:
     exceeded = _run_package("analyze", str(MODEL), "--arena-head-budget", "127", "--fail-on-budget-exceeded")
     exact = _run_package("analyze", str(MODEL), "--arena-head-budget", "128", "--fail-on-budget-exceeded")
     assert exceeded.returncode == EXIT_BUDGET_EXCEEDED
-    assert "EXCEEDS BUDGET" in exceeded.stdout
+    assert "EXCEEDS BUDGET (head only — 128 / 127 bytes; arena tail is not estimated here" in exceeded.stdout
+    assert "tensorscope validate" in exceeded.stdout
     assert exact.returncode == EXIT_SUCCESS
 
 

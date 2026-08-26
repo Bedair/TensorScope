@@ -43,6 +43,7 @@ from tensorscope.memory_budget import (
     evaluate_profile_budget,
     get_mcu_profile,
     parse_size,
+    render_budget_verdict,
     render_profile_listing,
 )
 from tensorscope.oracle import (
@@ -327,11 +328,10 @@ def _render_budget_text(budget: ArenaHeadBudgetResult) -> str:
         if budget.utilization_percent is None
         else f"{budget.utilization_percent:.2f}%"
     )
-    status = {"fits": "FITS", "exact_fit": "EXACT FIT", "exceeds": "EXCEEDS BUDGET"}[budget.status]
     lines.extend(
         [
             f"Utilization: {utilization}",
-            f"Arena-head budget result: {status}",
+            f"Arena-head budget result: {render_budget_verdict(budget)}",
             "This check covers planned arena head only.",
             "This is not a complete MCU or firmware memory-fit conclusion.",
         ]
@@ -367,7 +367,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     budget_group.add_argument("--arena-head-budget", metavar="SIZE", help="arena-head byte budget")
     budget_group.add_argument("--mcu-profile", metavar="PROFILE", help="generic MCU planning profile")
     analyze_parser.add_argument("--reserve", metavar="SIZE", help="RAM reserved from the selected profile")
-    analyze_parser.add_argument("--list-mcu-profiles", action="store_true", help="list generic MCU planning profiles and exit")
+    analyze_parser.add_argument("--list-mcu-profiles", action="store_true", help="list generic MCU planning profiles and exit (use --mcu-profile <id> to check a model against one)")
     analyze_parser.add_argument("--fail-on-budget-exceeded", action="store_true", help="return a dedicated failure code when the planned arena head exceeds the budget")
     analyze_parser.add_argument(
         "--top-tensors",
@@ -440,7 +440,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     deploy_parser.add_argument("model", type=Path)
     deploy_parser.add_argument("--output-dir", type=Path, required=True)
     deploy_parser.add_argument("--margin-percent", type=int, default=10)
-    subparsers.add_parser("list-profiles", help="list generic planning profiles")
+    subparsers.add_parser("list-profiles", help="list generic planning profiles (use analyze --mcu-profile <id> to check a model against one)")
     return parser
 
 

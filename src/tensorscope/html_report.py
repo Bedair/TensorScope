@@ -13,7 +13,7 @@ from tensorscope.explain import (
     TensorExplanation,
     describe_reuse_blocker,
 )
-from tensorscope.memory_budget import ArenaHeadBudgetResult
+from tensorscope.memory_budget import ArenaHeadBudgetResult, render_budget_verdict
 from tensorscope.recommendations import MemoryRiskAssessment
 
 
@@ -509,11 +509,7 @@ footer {{ margin-top:24px; color:var(--muted); font-size:12px; }}
 
 
 def _budget_section(budget: ArenaHeadBudgetResult) -> str:
-    status = {
-        "fits": "FITS",
-        "exact_fit": "EXACT FIT",
-        "exceeds": "EXCEEDS BUDGET",
-    }[budget.status]
+    verdict = render_budget_verdict(budget)
     profile_fields = ""
     if budget.profile_name is not None:
         profile_fields = (
@@ -532,7 +528,7 @@ def _budget_section(budget: ArenaHeadBudgetResult) -> str:
     source = "Direct arena-head budget" if budget.source == "direct" else "Generic MCU planning profile"
     return (
         '<section id="arena-head-budget"><h2>Arena-head budget check</h2>'
-        f'<p><span class="budget-status">Arena-head budget result: {status}</span></p>'
+        f'<p><span class="budget-status">Arena-head budget result: {_text(verdict)}</span></p>'
         '<dl class="metrics">'
         f"<div><dt>Budget source</dt><dd>{source}</dd></div>"
         f"{profile_fields}"
