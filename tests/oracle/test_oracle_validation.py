@@ -7,6 +7,7 @@ import pytest
 
 from tensorscope.oracle import (
     DEFAULT_ORACLE_EXECUTABLE,
+    oracle_is_runnable,
 )
 from tensorscope.oracle_validation import (
     validate_model_against_tflm,
@@ -24,10 +25,12 @@ CORPUS_ROOT = (
 
 
 pytestmark = pytest.mark.skipif(
-    not DEFAULT_ORACLE_EXECUTABLE.is_file(),
+    not oracle_is_runnable(DEFAULT_ORACLE_EXECUTABLE),
     reason=(
-        "TFLM oracle is not built; run "
-        "'make -C tools/tflm_oracle'"
+        "TFLM oracle is not available on this platform (not built, or the "
+        "committed Linux binary cannot run here); run "
+        "'make -C tools/tflm_oracle' from Linux/WSL, or set "
+        "TENSORSCOPE_TFLM_ORACLE to a working binary"
     ),
 )
 

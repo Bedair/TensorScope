@@ -10,6 +10,7 @@ from tensorscope.oracle import (
     OracleArenaObservation,
     TFLMOracleError,
     classify_oracle_incompatibility,
+    oracle_is_runnable,
     parse_tflm_oracle_output,
     run_tflm_oracle,
 )
@@ -233,10 +234,12 @@ def test_inconsistent_head_and_tail_are_rejected() -> None:
 
 
 @pytest.mark.skipif(
-    not ORACLE_EXECUTABLE.is_file(),
+    not oracle_is_runnable(ORACLE_EXECUTABLE),
     reason=(
-        "TFLM oracle is not built; run "
-        "'make -C tools/tflm_oracle'"
+        "TFLM oracle is not available on this platform (not built, or the "
+        "committed Linux binary cannot run here); run "
+        "'make -C tools/tflm_oracle' from Linux/WSL, or set "
+        "TENSORSCOPE_TFLM_ORACLE to a working binary"
     ),
 )
 @pytest.mark.parametrize(
@@ -310,6 +313,15 @@ def test_oracle_matches_recorded_corpus_results(
     assert "[RecordingMicroAllocator] Arena allocation total" in result.raw_output
 
 
+@pytest.mark.skipif(
+    not oracle_is_runnable(ORACLE_EXECUTABLE),
+    reason=(
+        "TFLM oracle is not available on this platform (not built, or the "
+        "committed Linux binary cannot run here); run "
+        "'make -C tools/tflm_oracle' from Linux/WSL, or set "
+        "TENSORSCOPE_TFLM_ORACLE to a working binary"
+    ),
+)
 def test_oracle_executable_environment_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TENSORSCOPE_TFLM_ORACLE", str(ORACLE_EXECUTABLE))
     result = run_tflm_oracle(CORPUS_ROOT / "hello_world_float.tflite")
@@ -360,11 +372,12 @@ def test_classify_oracle_incompatibility(
 
 
 @pytest.mark.skipif(
-    not ORACLE_EXECUTABLE.is_file() or not UNREGISTERED_OPERATOR_FIXTURE.is_file(),
+    not oracle_is_runnable(ORACLE_EXECUTABLE) or not UNREGISTERED_OPERATOR_FIXTURE.is_file(),
     reason=(
-        "TFLM oracle or the pinned TFLM submodule fixture is not "
-        "available; run 'make -C tools/tflm_oracle' and check out "
-        "third_party/tflite-micro"
+        "TFLM oracle is not available on this platform (not built, or the "
+        "committed Linux binary cannot run here), or the pinned TFLM "
+        "submodule fixture is missing; run 'make -C tools/tflm_oracle' "
+        "from Linux/WSL and check out third_party/tflite-micro"
     ),
 )
 def test_unregistered_operator_is_a_real_coverage_gap_not_a_mock() -> None:

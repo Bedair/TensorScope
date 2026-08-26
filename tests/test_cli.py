@@ -19,6 +19,7 @@ from tensorscope.cli import (
     main,
     validate_model,
 )
+from tensorscope.oracle import oracle_is_runnable
 
 
 MODEL = (
@@ -87,7 +88,10 @@ def test_package_module_analyze_executes_successfully() -> None:
     assert "Arena tail is not yet statically estimated." in completed.stdout
 
 
-def test_new_operator_model_supports_text_json_validation_and_html(tmp_path: Path) -> None:
+def test_new_operator_model_supports_text_json_and_html(tmp_path: Path) -> None:
+    # Deliberately oracle-free: analyze/--json/--html never need the TFLM
+    # oracle, so this runs on every platform. The matching validate check
+    # (which does need the oracle) lives in the skip-guarded test below.
     text_result = _run_package("analyze", str(OPERATOR_CHAIN_MODEL))
     assert text_result.returncode == EXIT_SUCCESS
     assert "Arena head: 128 bytes" in text_result.stdout
@@ -96,16 +100,27 @@ def test_new_operator_model_supports_text_json_validation_and_html(tmp_path: Pat
     assert json_result.returncode == EXIT_SUCCESS
     assert json.loads(json_result.stdout)["analysis"]["summary"]["planned_arena_head_bytes"] == 128
 
-    validation = _run_package("validate", str(OPERATOR_CHAIN_MODEL))
-    assert validation.returncode == EXIT_SUCCESS
-    assert "Arena-head validation: EXACT MATCH" in validation.stdout
-
     destination = tmp_path / "operator-chain.html"
     html_result = _run_package("analyze", str(OPERATOR_CHAIN_MODEL), "--html", str(destination))
     assert html_result.returncode == EXIT_SUCCESS
     report = destination.read_text(encoding="utf-8")
     assert report.startswith("<!doctype html>")
     assert "http://" not in report.lower() and "https://" not in report.lower()
+
+
+@pytest.mark.skipif(
+    not oracle_is_runnable(ORACLE_EXECUTABLE),
+    reason=(
+        "TFLM oracle is not available on this platform (not built, or the "
+        "committed Linux binary cannot run here); run "
+        "'make -C tools/tflm_oracle' from Linux/WSL, or set "
+        "TENSORSCOPE_TFLM_ORACLE to a working binary"
+    ),
+)
+def test_new_operator_model_validates_against_the_oracle() -> None:
+    validation = _run_package("validate", str(OPERATOR_CHAIN_MODEL))
+    assert validation.returncode == EXIT_SUCCESS
+    assert "Arena-head validation: EXACT MATCH" in validation.stdout
 
 
 def test_analyze_result_is_confidence_aware() -> None:
@@ -587,14 +602,13 @@ def test_unsupported_input_has_stable_json_error(
 
 
 @pytest.mark.skipif(
-    not (
-        Path(__file__).parents[1]
-        / "tools"
-        / "tflm_oracle"
-        / "build"
-        / "tflm_oracle"
-    ).is_file(),
-    reason="TFLM oracle is not built",
+    not oracle_is_runnable(ORACLE_EXECUTABLE),
+    reason=(
+        "TFLM oracle is not available on this platform (not built, or the "
+        "committed Linux binary cannot run here); run "
+        "'make -C tools/tflm_oracle' from Linux/WSL, or set "
+        "TENSORSCOPE_TFLM_ORACLE to a working binary"
+    ),
 )
 def test_validate_reports_explicit_head_match() -> None:
     result, exact_match = validate_model(MODEL)
@@ -630,14 +644,13 @@ def test_validate_reports_explicit_head_match() -> None:
 
 
 @pytest.mark.skipif(
-    not (
-        Path(__file__).parents[1]
-        / "tools"
-        / "tflm_oracle"
-        / "build"
-        / "tflm_oracle"
-    ).is_file(),
-    reason="TFLM oracle is not built",
+    not oracle_is_runnable(ORACLE_EXECUTABLE),
+    reason=(
+        "TFLM oracle is not available on this platform (not built, or the "
+        "committed Linux binary cannot run here); run "
+        "'make -C tools/tflm_oracle' from Linux/WSL, or set "
+        "TENSORSCOPE_TFLM_ORACLE to a working binary"
+    ),
 )
 def test_validate_json_reports_exact_head_match(
     capsys: pytest.CaptureFixture[str],
@@ -662,14 +675,13 @@ def test_validate_json_reports_exact_head_match(
 
 
 @pytest.mark.skipif(
-    not (
-        Path(__file__).parents[1]
-        / "tools"
-        / "tflm_oracle"
-        / "build"
-        / "tflm_oracle"
-    ).is_file(),
-    reason="TFLM oracle is not built",
+    not oracle_is_runnable(ORACLE_EXECUTABLE),
+    reason=(
+        "TFLM oracle is not available on this platform (not built, or the "
+        "committed Linux binary cannot run here); run "
+        "'make -C tools/tflm_oracle' from Linux/WSL, or set "
+        "TENSORSCOPE_TFLM_ORACLE to a working binary"
+    ),
 )
 def test_validate_human_label_is_not_generic(
     capsys: pytest.CaptureFixture[str],
@@ -695,11 +707,12 @@ def test_validate_human_label_is_not_generic(
 
 
 @pytest.mark.skipif(
-    not ORACLE_EXECUTABLE.is_file() or not UNREGISTERED_OPERATOR_MODEL.is_file(),
+    not oracle_is_runnable(ORACLE_EXECUTABLE) or not UNREGISTERED_OPERATOR_MODEL.is_file(),
     reason=(
-        "TFLM oracle or the pinned TFLM submodule fixture is not "
-        "available; run 'make -C tools/tflm_oracle' and check out "
-        "third_party/tflite-micro"
+        "TFLM oracle is not available on this platform (not built, or the "
+        "committed Linux binary cannot run here), or the pinned TFLM "
+        "submodule fixture is missing; run 'make -C tools/tflm_oracle' "
+        "from Linux/WSL and check out third_party/tflite-micro"
     ),
 )
 def test_validate_reports_unregistered_operator_category(

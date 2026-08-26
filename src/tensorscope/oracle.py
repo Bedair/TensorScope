@@ -466,6 +466,30 @@ def parse_tflm_oracle_output(
     )
 
 
+def oracle_is_runnable(executable: str | Path) -> bool:
+    """True only if ``executable`` both exists and can actually be launched
+    as a subprocess on this platform.
+
+    The compiled oracle binary is a Linux ELF executable committed to the
+    repository, so ``Path.is_file()`` alone is not a safe gate for
+    oracle-dependent tests: the file exists (and passes ``is_file()``) on
+    any platform that checked it out from git, including native Windows,
+    where trying to exec it raises ``OSError`` instead. This runs a cheap,
+    argument-less probe invocation and treats an ``OSError`` from the
+    subprocess launch itself (not a non-zero exit, which still proves the
+    OS could run it) as "not runnable here".
+    """
+
+    path = Path(executable)
+    if not path.is_file():
+        return False
+    try:
+        subprocess.run([str(path)], capture_output=True, timeout=10)
+    except OSError:
+        return False
+    return True
+
+
 def run_tflm_oracle(
     model_path: str | Path,
     *,
@@ -496,15 +520,33 @@ def run_tflm_oracle(
             "  make -C tools/tflm_oracle"
         )
 
-    completed = subprocess.run(
-        [
-            str(oracle),
-            str(model),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        completed = subprocess.run(
+            [
+                str(oracle),
+                str(model),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as error:
+        # The committed oracle binary is a Linux ELF executable. It can
+        # exist as a file (and pass the is_file() check above) on a
+        # platform that cannot run it -- most commonly native Windows,
+        # where launching it raises OSError (WinError 193, "%1 is not a
+        # valid Win32 application") rather than anything is_file() catches.
+        raise FileNotFoundError(
+            "TFLM oracle executable exists but cannot run on this platform: "
+            f"{oracle}\n"
+            f"({error})\n"
+            "The committed oracle binary is Linux-only. Run "
+            "`tensorscope validate` from WSL or another Linux host, or "
+            "build a native oracle for this platform and point "
+            "TENSORSCOPE_TFLM_ORACLE at it. From a source checkout on "
+            "Linux/WSL:\n"
+            "  make -C tools/tflm_oracle"
+        ) from error
 
     combined_output = "\n".join(
         part
