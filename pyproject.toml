@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tensorscope"
+name = "tensorscope-cli"
 dynamic = ["version"]
 description = "Confidence-aware memory analysis for TensorFlow Lite Micro models"
 readme = "README.md"
