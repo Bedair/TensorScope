@@ -43,6 +43,7 @@ from tensorscope.memory_budget import (
     evaluate_profile_budget,
     get_mcu_profile,
     parse_size,
+    render_budget_source_label,
     render_budget_verdict,
     render_profile_listing,
 )
@@ -310,7 +311,7 @@ def _render_text(
 
 
 def _render_budget_text(budget: ArenaHeadBudgetResult, *, target_clause: str | None = None) -> str:
-    source = "Direct arena-head budget" if budget.source == "direct" else "Generic MCU planning profile"
+    source = render_budget_source_label(budget, target_clause=target_clause)
     lines = ["Arena-head budget check", f"Budget source: {source}"]
     if budget.profile_name is not None:
         lines.extend(

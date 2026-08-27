@@ -13,7 +13,11 @@ from tensorscope.explain import (
     TensorExplanation,
     describe_reuse_blocker,
 )
-from tensorscope.memory_budget import ArenaHeadBudgetResult, render_budget_verdict
+from tensorscope.memory_budget import (
+    ArenaHeadBudgetResult,
+    render_budget_source_label,
+    render_budget_verdict,
+)
 from tensorscope.recommendations import MemoryRiskAssessment
 
 
@@ -589,14 +593,6 @@ def _verdict_banner(budget: ArenaHeadBudgetResult, *, target_clause: str | None 
     )
 
 
-def _budget_source_label(budget: ArenaHeadBudgetResult, target_clause: str | None) -> str:
-    if budget.source == "direct":
-        return "Direct arena-head budget"
-    if target_clause is not None:
-        return "Real MCU/dev-kit target (cited datasheet)"
-    return "Generic MCU planning profile"
-
-
 def _budget_section(budget: ArenaHeadBudgetResult, *, target_clause: str | None = None) -> str:
     profile_fields = ""
     if budget.profile_name is not None:
@@ -613,7 +609,7 @@ def _budget_section(budget: ArenaHeadBudgetResult, *, target_clause: str | None 
         if budget.utilization_percent is None
         else f"{budget.utilization_percent:.2f}%"
     )
-    source = _budget_source_label(budget, target_clause)
+    source = render_budget_source_label(budget, target_clause=target_clause)
     return (
         '<section id="arena-head-budget"><h2>Arena-head budget details</h2>'
         '<dl class="metrics">'

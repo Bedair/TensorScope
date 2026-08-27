@@ -136,6 +136,36 @@ def render_budget_verdict(
     )
 
 
+def render_budget_source_label(
+    budget: ArenaHeadBudgetResult,
+    *,
+    target_clause: str | None = None,
+) -> str:
+    """Render the human-readable "Budget source" label for text/HTML output.
+
+    The single source of truth for this label, shared by the text renderer
+    (cli.py's ``_render_budget_text``) and the HTML renderer
+    (html_report.py's ``_budget_section``) -- both call this instead of each
+    keeping their own copy of the ``budget.source == "direct"`` /
+    ``target_clause is not None`` branching. A prior fix applied only to the
+    HTML copy (mislabeling a --target result "Generic MCU planning
+    profile") went unnoticed in the text renderer's independent copy for
+    exactly this reason; a single shared function makes that class of drift
+    impossible between whichever render surfaces call it.
+
+    JSON output does not render this label at all -- it exposes the raw
+    ``budget.source`` enum ("direct"/"profile") plus ``profile_id`` and the
+    citation-bearing ``verdict`` string instead, so it was never subject to
+    this particular mislabeling.
+    """
+
+    if budget.source == "direct":
+        return "Direct arena-head budget"
+    if target_clause is not None:
+        return "Real MCU/dev-kit target (cited datasheet)"
+    return "Generic MCU planning profile"
+
+
 def _evaluate(
     planned_arena_head_bytes: int,
     effective_budget_bytes: int,

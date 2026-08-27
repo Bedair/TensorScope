@@ -490,6 +490,40 @@ def test_target_verdict_cites_the_resolved_part_and_vendor_in_all_three_modes(
     assert expected_clause in destination.read_text(encoding="utf-8")
 
 
+def test_budget_source_label_agrees_across_text_and_html_for_every_budget_kind(
+    tmp_path: Path,
+) -> None:
+    # Regression test: the "Budget source" label was fixed in the HTML
+    # renderer (mislabeling a --target result "Generic MCU planning
+    # profile") without a shared helper, so the exact same bug shipped
+    # again, independently, in the text renderer. All three budget kinds
+    # are covered here so a future fix to one render surface can't drift
+    # from the others the same way, for any of them.
+    cases = [
+        (("--target", "STM32U585"), "Real MCU/dev-kit target (cited datasheet)"),
+        (("--mcu-profile", "cortex-m4-256k"), "Generic MCU planning profile"),
+        (("--arena-head-budget", "1MiB"), "Direct arena-head budget"),
+    ]
+    for budget_flags, expected_label in cases:
+        text = _run_package("analyze", str(MODEL), *budget_flags)
+        destination = tmp_path / f"{'-'.join(budget_flags)}.html"
+        as_html = _run_package(
+            "analyze", str(MODEL), *budget_flags, "--html", str(destination),
+        )
+
+        assert f"Budget source: {expected_label}" in text.stdout
+        assert f"<dt>Budget source</dt><dd>{expected_label}</dd>" in destination.read_text(encoding="utf-8")
+
+    # JSON has no separate "Budget source" label field to drift -- it
+    # exposes the raw source enum plus profile_id and the citation-bearing
+    # verdict instead. Confirmed here so JSON isn't silently assumed safe.
+    as_json = _run_package("analyze", str(MODEL), "--target", "STM32U585", "--json")
+    budget_json = json.loads(as_json.stdout)["arena_head_budget"]
+    assert budget_json["source"] == "profile"
+    assert budget_json["profile_id"] == "stm32u585"
+    assert "on STM32U585, per STMicroelectronics datasheet" in budget_json["verdict"]
+
+
 def test_target_verdict_cites_correctly_when_resolved_via_a_dev_kit_alias() -> None:
     # The citation names the resolved MCU, not the alias string the user typed.
     completed = _run_package(
