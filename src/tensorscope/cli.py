@@ -720,8 +720,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 reserve = parse_size(arguments.reserve) if arguments.reserve is not None else 0
                 budget = evaluate_profile_budget(planned, get_mcu_profile(arguments.mcu_profile), reserve)
             elif arguments.target is not None:
-                reserve = parse_size(arguments.reserve) if arguments.reserve is not None else 0
                 resolved_target = resolve_target(arguments.target)
+                if arguments.reserve is not None:
+                    reserve = parse_size(arguments.reserve)
+                elif resolved_target.default_firmware_reserve_bytes is not None:
+                    # A vendor/user-declared convention value, not a computed
+                    # one -- same status as --reserve itself. See
+                    # target_profiles.py's schema docstring and
+                    # docs/automation_and_limits.md for why this is never
+                    # derived from the model or measured.
+                    reserve = resolved_target.default_firmware_reserve_bytes
+                else:
+                    reserve = 0
                 budget = evaluate_profile_budget(planned, as_mcu_profile(resolved_target), reserve)
                 target_clause = render_target_verdict_clause(resolved_target)
                 target_total_flash_bytes = resolved_target.total_flash_bytes

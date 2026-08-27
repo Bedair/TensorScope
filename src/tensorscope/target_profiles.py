@@ -55,6 +55,23 @@ class ProfileSource:
 
 @dataclass(frozen=True)
 class TargetProfile:
+    """One real per-vendor MCU/dev-kit target, resolved by --target.
+
+    ``default_firmware_reserve_bytes`` is a vendor/user-declared convention
+    value, not a computed or measured one -- the same status as CLI's
+    ``--reserve`` flag, which it pre-fills for a --target run when
+    ``--reserve`` isn't given explicitly (an explicit --reserve always
+    wins). It exists for exactly the reason stack usage can't be
+    statically estimated from a .tflite file at all (see
+    docs/automation_and_limits.md): stack/heap/RTOS overhead is a firmware
+    and toolchain property, not a model property, so the only honest way
+    to account for it here is a declared assumption someone supplies, not
+    something this project derives. Every shipped profile currently leaves
+    this null -- it should only ever be filled in with the same
+    citation rigor as total_sram_bytes/total_flash_bytes (e.g. an actual
+    vendor-recommended stack/RTOS budget), never a guess.
+    """
+
     id: str
     mcu_part: str
     vendor: str

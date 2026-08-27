@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,7 @@ from tensorscope.cli import (
     validate_model,
 )
 from tensorscope.oracle import oracle_is_runnable
+from tensorscope.target_profiles import resolve_target
 
 
 MODEL = (
@@ -533,6 +535,38 @@ def test_reserve_without_mcu_profile_or_target_is_rejected() -> None:
     completed = _run_package("analyze", str(MODEL), "--reserve", "1KiB")
     assert completed.returncode == EXIT_INPUT_ERROR
     assert "--reserve may be used only with --mcu-profile or --target" in completed.stderr
+
+
+def test_reserve_flag_overrides_a_targets_default_firmware_reserve(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # default_firmware_reserve_bytes is null on every shipped profile today
+    # (not yet sourced with citation rigor) -- monkeypatch a resolved
+    # profile with a real value to exercise the --reserve/default wiring
+    # itself, in-process so the patch actually takes effect (a subprocess
+    # run via _run_package wouldn't see it).
+    with_default = replace(resolve_target("stm32u585"), default_firmware_reserve_bytes=100_000)
+    monkeypatch.setattr("tensorscope.cli.resolve_target", lambda name: with_default)
+
+    assert main(["analyze", str(MODEL), "--target", "stm32u585", "--json"]) == EXIT_SUCCESS
+    using_profile_default = json.loads(capsys.readouterr().out)["arena_head_budget"]
+    assert using_profile_default["reserve_bytes"] == 100_000
+
+    assert main(["analyze", str(MODEL), "--target", "stm32u585", "--reserve", "5000", "--json"]) == EXIT_SUCCESS
+    overridden = json.loads(capsys.readouterr().out)["arena_head_budget"]
+    assert overridden["reserve_bytes"] == 5000
+
+
+def test_reserve_defaults_to_zero_when_target_has_no_default_firmware_reserve() -> None:
+    # All four shipped profiles are null today -- confirm that falls
+    # through to 0, same as before this field was wired up at all.
+    target = resolve_target("stm32u585")
+    assert target.default_firmware_reserve_bytes is None
+
+    completed = _run_package("analyze", str(MODEL), "--target", "stm32u585", "--json")
+    assert completed.returncode == EXIT_SUCCESS
+    assert json.loads(completed.stdout)["arena_head_budget"]["reserve_bytes"] == 0
 
 
 def test_list_targets_subcommand_and_analyze_list_targets_agree() -> None:

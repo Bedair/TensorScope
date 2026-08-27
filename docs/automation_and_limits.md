@@ -59,6 +59,25 @@ SARIF. Errors continue by default.
 - **GNU ld maps:** firmware-check supports a documented minimal MEMORY-region and
   symbol-line subset. Arena size requires `--arena-size`; without it status is
   `incomplete`. Stack/heap inputs are reported assumptions, not proof of fit.
+- **Stack usage:** investigated and concluded out of statically-answerable
+  scope, the same conclusion class as arena tail -- arguably harder, since
+  tail is at least measurable via a portable host oracle build, while stack
+  bytes are target-ISA/toolchain/optimization-specific and a host build can't
+  substitute for the real target. `MicroInterpreterGraph::InvokeSubgraph()`
+  runs each subgraph's operators in a flat loop (no depth growth between
+  sibling ops); only WHILE/IF kernels recursing into another subgraph add
+  real call-stack frames, and even then the per-frame byte cost is pure
+  compiler/ISA output, invisible in a `.tflite` file. One narrow static fact
+  is derivable -- control-flow subgraph nesting depth, from WHILE/IF's
+  `cond`/`body`/`then`/`else` subgraph indices -- but it has no declared
+  per-frame byte cost to compose with, and this project's graph model is
+  primary-subgraph scoped today (see Multi-subgraph/control flow above), so
+  it was not built. No stack-usage estimation or nesting-depth tracking is
+  planned. `default_firmware_reserve_bytes` (target_profiles.py) exists for
+  this exact gap instead: a vendor/user-declared reserve convention, wired as
+  `--reserve`'s default for `--target` runs (an explicit `--reserve` still
+  wins) -- every shipped profile currently leaves it null pending the same
+  citation rigor as SRAM/flash.
 - **Operator attribution/timeline/graph:** analysis JSON now exposes represented
   input/output bytes, live bytes, occupied extent, retained outputs, blockers,
   pressure, and peak flags per operator. HTML renders deterministic accessible
