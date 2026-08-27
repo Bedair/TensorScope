@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "stm32f767zi",
+  "mcu_part": "STM32F767ZI",
+  "vendor": "STMicroelectronics",
+  "architecture": "Arm Cortex-M7",
+  "total_sram_bytes": 544768,
+  "total_flash_bytes": 2097152,
+  "dev_kit_aliases": ["NUCLEO-F767ZI"],
+  "source": {
+    "datasheet_title": "STM32F765xx STM32F767xx STM32F768Ax STM32F769xx Datasheet",
+    "revision": "DocID029041 Rev 3, May 2016",
+    "section": "Features -> Memories",
+    "page": 1,
+    "url": "https://www.st.com/resource/en/datasheet/stm32f767zi.pdf"
+  },
+  "notes": "total_sram_bytes (532 KB) is 512 KB of SRAM (the datasheet's own headline, already inclusive of 128 KB data TCM RAM) + 16 KB of instruction TCM RAM + 4 KB of backup SRAM, all stated directly in the same 'Memories' feature bullet, not summed from smaller sub-components the way stm32h743zi.json's figure is. total_flash_bytes (2 Mbytes) is the same bullet's directly stated flash capacity for the 'xI' devices. st.com blocks automated fetches of this PDF directly; content verified against an Octopart-hosted mirror of the identical document (253 pp., read in full).",
+  "default_firmware_reserve_bytes": null
+}

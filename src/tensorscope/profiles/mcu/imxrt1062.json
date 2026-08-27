@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "imxrt1062",
+  "mcu_part": "i.MX RT1062",
+  "vendor": "NXP Semiconductors",
+  "architecture": "Arm Cortex-M7",
+  "total_sram_bytes": 1048576,
+  "total_flash_bytes": null,
+  "dev_kit_aliases": ["Teensy 4.0", "Teensy 4.1"],
+  "source": {
+    "datasheet_title": "i.MX RT1060 Crossover Processors for Consumer Products",
+    "revision": "IMXRT1060CEC Rev. 4, 04/2024",
+    "section": "1 Introduction; 1.1 Features",
+    "page": 1,
+    "url": "https://www.nxp.com/docs/en/nxp/data-sheets/IMXRT1060CEC.pdf"
+  },
+  "notes": "total_flash_bytes is deliberately null: the bare die has no embedded flash at all -- flash is external SPI/QSPI chosen per board, not a chip-level constant like SRAM. Confirmed directly from the datasheet's own memory-interfaces list, which enumerates only external options (SDRAM, SLC NAND flash, SD/eMMC, SPI NOR/NAND flash, parallel NOR flash with XIP) -- no on-die flash exists anywhere in the sections read. Teensy 4.0 pairs it with a 2 MB external QSPI flash chip, Teensy 4.1 with 8 MB; both are board-level choices, not RT1062 spec, which is why both boards are listed as aliases here despite differing board flash. total_sram_bytes (1 MB) is confirmed directly: 'The i.MX RT1060 processor has 1 MB on-chip RAM. 512 KB can be flexibly configured as TCM or general purpose on-chip RAM, while the other 512 KB is general-purpose on-chip RAM.' This datasheet covers the RT1060 family and explicitly lists the MIMXRT1062DVJ6A/DVL6A part numbers used on Teensy 4.x in its ordering table. Read via a PJRC (Teensy maker)-hosted mirror of NXP's own PDF, 119 pp., verified directly.",
+  "default_firmware_reserve_bytes": null
+}

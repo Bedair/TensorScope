@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "stm32h743zi",
+  "mcu_part": "STM32H743ZI",
+  "vendor": "STMicroelectronics",
+  "architecture": "Arm Cortex-M7",
+  "total_sram_bytes": 1085440,
+  "total_flash_bytes": 2097152,
+  "dev_kit_aliases": ["NUCLEO-H743ZI"],
+  "source": {
+    "datasheet_title": "STM32H742xI/G STM32H743xI/G Datasheet",
+    "revision": "DS12110 Rev 5, July 2018",
+    "section": "Features -> Memories",
+    "page": 1,
+    "url": "https://www.st.com/resource/en/datasheet/stm32h743vi.pdf"
+  },
+  "notes": "total_sram_bytes (1060 KB) is the sum of the datasheet's own itemized breakdown: 864 KB of user SRAM (AXI-SRAM + SRAM1-4) + 192 KB of TCM RAM (64 KB ITCM + 128 KB DTCM) + 4 KB of backup SRAM. ST's own headline calls this '1 Mbyte of RAM', which is a rounded figure -- 1060 KB is itself larger than 1024 KB (1 MiB) -- so the itemized sum is used here instead, consistent with how every other profile in this catalog prefers a precise component figure over a rounded headline. total_flash_bytes (2 Mbytes) is the same datasheet's directly stated flash capacity for the 'xI' devices. st.com blocks automated fetches of this PDF directly; content verified against a SparkFun-hosted mirror of the identical document (231 pp., read in full). A newer Rev 9 exists at ST; the memory figures are silicon facts that don't move between doc revisions.",
+  "default_firmware_reserve_bytes": null
+}

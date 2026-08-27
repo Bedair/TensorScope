@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "efr32mg24",
+  "mcu_part": "EFR32MG24",
+  "vendor": "Silicon Labs",
+  "architecture": "Arm Cortex-M33",
+  "total_sram_bytes": 262144,
+  "total_flash_bytes": 1572864,
+  "dev_kit_aliases": ["xG24-DK2601B"],
+  "source": {
+    "datasheet_title": "EFR32MG24 Wireless SoC Family Data Sheet",
+    "revision": null,
+    "section": "Cover / introduction",
+    "page": 1,
+    "url": "https://www.silabs.com/documents/public/data-sheets/efr32mg24-datasheet.pdf"
+  },
+  "notes": "Figures are the family's headline maximum SKU: 'A Cortex-M33 running up to 78 MHz and up to 1536 kB of Flash and 256 kB of RAM'. Smaller-flash SKUs exist in the same family (e.g. 768 KB variants) and are not covered by this profile -- picking the max SKU here is a deliberate choice for a family headline profile, not an assumption that every EFR32MG24 part has this much flash. dev_kit_aliases: xG24-DK2601B (Silicon Labs' 'EFR32xG24 Dev Kit', board BRD2601B) is built around EFR32MG24B220F1536IM48, which matches the 1536 kB/256 kB max-SKU figures used here exactly. Fetched via a downloaded copy of Silicon Labs' own PDF, re-extracted directly (132 pp.), not just search-engine paraphrase.",
+  "default_firmware_reserve_bytes": null
+}

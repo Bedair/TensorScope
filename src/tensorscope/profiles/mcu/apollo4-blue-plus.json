@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "apollo4-blue-plus",
+  "mcu_part": "Apollo4 Blue Plus",
+  "vendor": "Ambiq Micro",
+  "architecture": "Arm Cortex-M4F",
+  "total_sram_bytes": 2883584,
+  "total_flash_bytes": 2097152,
+  "dev_kit_aliases": [],
+  "source": {
+    "datasheet_title": "Apollo4 Blue Plus SoC Datasheet",
+    "revision": "DS-A4BP-1p5p0 Rev 1.5.0, April 2024",
+    "section": "4 Memory Subsystem",
+    "page": 66,
+    "url": "https://ambiq.com/wp-content/uploads/2022/06/Apollo4-Blue-Plus-SoC-Datasheet.pdf"
+  },
+  "notes": "Identical memory figures to apollo4-plus.json (2048 kB Shared SRAM + 384 kB TCM + 384 kB Extended SRAM = 2.75 MB; 2 MB NVM) -- Blue Plus adds a Bluetooth radio on top of the same memory subsystem, confirmed by the same 'Memory Subsystem' section wording appearing verbatim in both datasheets. This is kept as a separate profile file rather than folded into apollo4-plus.json as an alias, since these are two distinct named products (not package/pin variants of one part number the way STM32U575/585 are) -- but the shared figures are worth noting explicitly so a future edit to one doesn't silently drift from the other. Same MRAM-not-flash caveat as apollo4-plus.json applies to total_flash_bytes. dev_kit_aliases is deliberately empty for the same reason as apollo4-plus.json: no specific Ambiq evaluation board was confirmed with certainty against this exact part in the time available for this pass. Fetched directly from ambiq.com (AES-encrypted PDF, decrypted and read in full, 248 pp.), not blocked.",
+  "default_firmware_reserve_bytes": null
+}

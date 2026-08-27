@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "cxd5602",
+  "mcu_part": "CXD5602",
+  "vendor": "Sony Semiconductor Solutions",
+  "architecture": "Arm Cortex-M4F (6-core application processor)",
+  "total_sram_bytes": 1572864,
+  "total_flash_bytes": null,
+  "dev_kit_aliases": ["Spresense Main Board"],
+  "source": {
+    "datasheet_title": "CXD5602 User Manual",
+    "revision": null,
+    "section": "PMU SRAM power-domain section; 2.5.2 System and I/O Processor",
+    "page": 128,
+    "url": "https://www.sony-semicon.com/files/62/pdf/p-28_CXD5602_user_manual.pdf"
+  },
+  "notes": "Compute-core policy (same principle as stm32h747xi.json and nrf5340.json): total_sram_bytes reports the Application Processor domain's figure (1.5 MB), the shared main memory for the chip's six Cortex-M4 cores, where a TFLM build would actually run. Two other on-chip memory domains exist and are deliberately excluded, not folded in or averaged: a separate 256 KB SRAM pool for the always-on Cortex-M0+ System/IO Processor (a lower-power housekeeping core, not general application compute), and the GNSS baseband processor's own memory (not detailed in the sections read for this profile, but architecturally separate from both of the above -- this is a GPS receiver chip first, matching this project's explicit policy to exclude radio/IO/GNSS cores from the reported figure). Confirmed directly: 'PWD_APP has a total of 1.5 M bytes of SRAM as main memory for the Application Processor. It comprises 12 logic tiles in 128 K byte units' (12 x 128 KB = 1536 KB = 1.5 MB). total_flash_bytes is deliberately null for the same bare-die reason as rp2040.json/rp2350a.json/imxrt1062.json: the datasheet lists 'Boot from Quad SPI flash' as one of two external boot options, with no on-die flash anywhere in the memory sections read -- the Spresense Main Board's 8 MB flash is a board-level component, not a CXD5602 spec. Fetched directly from Sony's own domain, no blocking; 1293 pp., relevant sections read in full.",
+  "default_firmware_reserve_bytes": null
+}

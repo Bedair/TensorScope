@@ -76,13 +76,17 @@ def _synthetic_profile(
 # --- Real bundled catalog -------------------------------------------------
 
 
-def test_bundled_catalog_loads_exactly_the_four_shipped_targets() -> None:
+def test_bundled_catalog_loads_exactly_the_shipped_targets() -> None:
     profiles = load_target_profiles()
 
     assert {profile.id for profile in profiles} == {
         "stm32u585", "nrf52840", "esp32-s3", "cy8c624abzi-s2d44",
+        "stm32h743zi", "stm32h747xi", "esp32-s3-wroom-1-n8", "esp32-s3-wroom-1-n16r8",
+        "nrf52832", "rp2040", "rp2350a", "stm32f746zg", "stm32f767zi", "imxrt1062",
+        "nrf5340", "efr32mg24", "efr32mg26", "apollo4-plus", "apollo4-blue-plus",
+        "ra8d1", "hx6537-a", "cxd5602", "cc1352p",
     }
-    assert len(profiles) == 4
+    assert len(profiles) == 23
 
 
 def test_bundled_catalog_is_sorted_by_file_name_and_deterministic() -> None:
@@ -102,6 +106,25 @@ def test_bundled_catalog_is_sorted_by_file_name_and_deterministic() -> None:
         ("nrf52840", "nRF52840", 262144, 1048576, "Nordic Semiconductor"),
         ("esp32-s3", "ESP32-S3", 524288, None, "Espressif Systems"),
         ("cy8c624abzi-s2d44", "CY8C624ABZI-S2D44", 1048576, 2097152, "Infineon Technologies"),
+        ("stm32h743zi", "STM32H743ZI", 1085440, 2097152, "STMicroelectronics"),
+        ("stm32h747xi", "STM32H747XI", 1085440, 2097152, "STMicroelectronics"),
+        ("esp32-s3-wroom-1-n8", "ESP32-S3-WROOM-1-N8", 524288, 8388608, "Espressif Systems"),
+        ("esp32-s3-wroom-1-n16r8", "ESP32-S3-WROOM-1-N16R8", 524288, 16777216, "Espressif Systems"),
+        ("nrf52832", "nRF52832", 65536, 524288, "Nordic Semiconductor"),
+        ("rp2040", "RP2040", 270336, None, "Raspberry Pi Ltd"),
+        ("rp2350a", "RP2350A", 532480, None, "Raspberry Pi Ltd"),
+        ("stm32f746zg", "STM32F746ZG", 348160, 1048576, "STMicroelectronics"),
+        ("stm32f767zi", "STM32F767ZI", 544768, 2097152, "STMicroelectronics"),
+        ("imxrt1062", "i.MX RT1062", 1048576, None, "NXP Semiconductors"),
+        ("nrf5340", "nRF5340", 524288, 1048576, "Nordic Semiconductor"),
+        ("efr32mg24", "EFR32MG24", 262144, 1572864, "Silicon Labs"),
+        ("efr32mg26", "EFR32MG26", 524288, 3276800, "Silicon Labs"),
+        ("apollo4-plus", "Apollo4 Plus", 2883584, 2097152, "Ambiq Micro"),
+        ("apollo4-blue-plus", "Apollo4 Blue Plus", 2883584, 2097152, "Ambiq Micro"),
+        ("ra8d1", "RA8D1", 1048576, 2097152, "Renesas Electronics"),
+        ("hx6537-a", "HX6537-A", 2162688, None, "Himax Technology"),
+        ("cxd5602", "CXD5602", 1572864, None, "Sony Semiconductor Solutions"),
+        ("cc1352p", "CC1352P", 81920, 360448, "Texas Instruments"),
     ],
 )
 def test_each_shipped_target_has_the_expected_datasheet_figures(
@@ -114,15 +137,19 @@ def test_each_shipped_target_has_the_expected_datasheet_figures(
     assert profile.total_sram_bytes == total_sram_bytes
     assert profile.total_flash_bytes == total_flash_bytes
     assert profile.vendor == vendor
-    assert profile.source.datasheet_title
     # Every shipped profile must carry a real, non-empty citation title even
     # when revision/section/page/url are honestly null rather than guessed.
-    assert profile.dev_kit_aliases
+    assert profile.source.datasheet_title
 
 
-def test_every_shipped_target_has_at_least_one_dev_kit_alias() -> None:
+def test_every_shipped_target_has_a_dev_kit_alias_or_a_documented_reason_it_lacks_one() -> None:
+    # Most profiles carry at least one real dev-kit alias. A few module-level
+    # or recently-announced parts genuinely don't have one confirmed yet --
+    # that's honest, but it must be stated in notes, not silently absent,
+    # so a real alias found later doesn't go unnoticed as "still missing".
     for profile in load_target_profiles():
-        assert len(profile.dev_kit_aliases) >= 1, profile.id
+        if not profile.dev_kit_aliases:
+            assert "alias" in profile.notes.lower(), profile.id
 
 
 def test_esp32s3_flash_is_honestly_null_with_an_explanatory_note() -> None:
@@ -161,6 +188,19 @@ def test_esp32s3_flash_is_honestly_null_with_an_explanatory_note() -> None:
         ("cy8c624abzi-s2d44", "cy8c624abzi-s2d44"),
         ("CY8CKIT-062S2-AI", "cy8c624abzi-s2d44"),
         ("cy8ckit-062s2-ai", "cy8c624abzi-s2d44"),
+        ("NUCLEO-H743ZI", "stm32h743zi"),
+        ("Portenta H7", "stm32h747xi"),
+        ("Nicla Vision", "stm32h747xi"),
+        ("OpenMV H7", "stm32h747xi"),
+        ("STM32U575AI", "stm32u585"),
+        ("stm32u575zi", "stm32u585"),
+        ("STM32U585ZI", "stm32u585"),
+        ("Raspberry Pi Pico", "rp2040"),
+        ("Raspberry Pi Pico 2", "rp2350a"),
+        ("Teensy 4.1", "imxrt1062"),
+        ("nRF5340-DK", "nrf5340"),
+        ("xG24-DK2601B", "efr32mg24"),
+        ("LAUNCHXL-CC1352P", "cc1352p"),
     ],
 )
 def test_resolve_target_matches_id_mcu_part_and_alias_case_insensitively(
@@ -243,15 +283,12 @@ def test_render_target_verdict_clause_names_the_part_and_vendor() -> None:
     assert clause == "on STM32U585, per STMicroelectronics datasheet"
 
 
-@pytest.mark.parametrize("target_id", ["stm32u585", "nrf52840", "esp32-s3", "cy8c624abzi-s2d44"])
-def test_render_target_verdict_clause_covers_every_shipped_target(target_id: str) -> None:
-    profiles = {profile.id: profile for profile in load_target_profiles()}
-    target = profiles[target_id]
+def test_render_target_verdict_clause_covers_every_shipped_target() -> None:
+    for target in load_target_profiles():
+        clause = render_target_verdict_clause(target)
 
-    clause = render_target_verdict_clause(target)
-
-    assert clause == f"on {target.mcu_part}, per {target.vendor} datasheet"
-    assert "datasheet" in clause
+        assert clause == f"on {target.mcu_part}, per {target.vendor} datasheet"
+        assert "datasheet" in clause
 
 
 # --- Listing ------------------------------------------------------------

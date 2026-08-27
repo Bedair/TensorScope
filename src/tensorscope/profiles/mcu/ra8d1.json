@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "ra8d1",
+  "mcu_part": "RA8D1",
+  "vendor": "Renesas Electronics",
+  "architecture": "Arm Cortex-M85",
+  "total_sram_bytes": 1048576,
+  "total_flash_bytes": 2097152,
+  "dev_kit_aliases": ["EK-RA8D1"],
+  "source": {
+    "datasheet_title": "RA8D1 Group Datasheet",
+    "revision": "R01DS0416EJ0110 Rev.1.10, Dec 5, 2023",
+    "section": "Features (cover page)",
+    "page": 1,
+    "url": "https://www.renesas.com/en/document/dst/ra8d1-group-datasheet"
+  },
+  "notes": "Confirmed directly: 'up to 2 MB code flash memory with Dual-bank, background and SWAP operation, 12 KB Data flash memory, and 1 MB SRAM with Parity/ECC.' total_flash_bytes reports the 2 MB code flash figure; the separate 12 KB data flash region is excluded, same convention as this project applies to other MCUs' small auxiliary/config flash regions (not general application code/data storage). renesas.com and the Mouser mirror both blocked automated fetches on the first research pass (bot-interstitial via curl, WebFetch timeouts); a second pass located a Wayback Machine capture of the Mouser-hosted PDF and confirmed the figures directly (193 pp., read in full) rather than relying on search-engine corroboration alone. The captured revision (1.10) is slightly older than the current 1.30 referenced in some search results; memory figures are silicon facts that don't move between doc revisions.",
+  "default_firmware_reserve_bytes": null
+}

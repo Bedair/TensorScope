@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "stm32h747xi",
+  "mcu_part": "STM32H747XI",
+  "vendor": "STMicroelectronics",
+  "architecture": "Arm Cortex-M7 + Cortex-M4 (dual-core)",
+  "total_sram_bytes": 1085440,
+  "total_flash_bytes": 2097152,
+  "dev_kit_aliases": ["Portenta H7", "Nicla Vision", "OpenMV H7"],
+  "source": {
+    "datasheet_title": "STM32H747xI/G Datasheet",
+    "revision": "DS12930 Rev 1, May 2019",
+    "section": "3.3.2 Embedded SRAM; 3.4 Boot modes",
+    "page": 23,
+    "url": "https://www.st.com/resource/en/datasheet/stm32h747xi.pdf"
+  },
+  "notes": "Compute-core policy (same principle as nrf5340.json and cxd5602.json): total_sram_bytes reports the figure available to the core that would actually run TFLM, not a partial or ambiguous mix. Here that is the Cortex-M7 -- the higher-performance core with the FPU/DSP throughput ML inference needs, and the practical default for TFLM on this family. Unlike nRF5340's application/network split, STM32H747's SRAM is mostly *shared* between cores: the datasheet's boot-mode section states plainly that the boot memory space may include 'Flash memory and SRAMs (except for ITCM/DTCM RAMs which cannot be accessed by the Cortex-M4 core)' -- meaning only the 192 KB of TCM RAM is M7-exclusive; the remaining 868 KB (512 KB AXI-SRAM + 128+128+32 KB SRAM1-3 + 4 KB backup) is reachable from either core. Because nothing is withheld from the M7, its figure (1060 KB = 1,085,440 B, same itemized-breakdown-over-rounded-headline convention as stm32h743zi.json) equals the identical single-core STM32H743's total exactly. If TFLM is instead hosted on the Cortex-M4 core here, the real budget is smaller: 888,832 B (868 KB) -- the M4 cannot reach the 192 KB TCM. Confirm which core actually hosts TFLM before using this profile if it isn't the M7. total_flash_bytes (2 Mbytes, '2 x 1 Mbyte' dual-bank per the datasheet's own device table) is shared and not core-dependent. st.com blocks automated fetches of this PDF directly; content verified against an Arduino-hosted mirror of the identical document (252 pp., read in full, including the cross-core accessibility sentence quoted above). Dev-kit aliases (Portenta H7, Nicla Vision, OpenMV H7) are the boards commonly associated with this part in the maker ecosystem; their exact board-level part-number match to STM32H747XI specifically (vs. a sibling H747 variant) was not independently re-verified against each board's own schematic in this pass.",
+  "default_firmware_reserve_bytes": null
+}

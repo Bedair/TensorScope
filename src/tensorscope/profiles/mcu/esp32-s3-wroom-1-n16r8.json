@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "esp32-s3-wroom-1-n16r8",
+  "mcu_part": "ESP32-S3-WROOM-1-N16R8",
+  "vendor": "Espressif Systems",
+  "architecture": "Xtensa LX7 (dual-core)",
+  "total_sram_bytes": 524288,
+  "total_flash_bytes": 16777216,
+  "dev_kit_aliases": [],
+  "source": {
+    "datasheet_title": "ESP32-S3-WROOM-1 & ESP32-S3-WROOM-1U Datasheet",
+    "revision": "Version 1.8",
+    "section": "Table 1-1 ESP32-S3-WROOM-1 Series Comparison; Section 1.1 Features",
+    "page": 3,
+    "url": "https://documentation.espressif.com/esp32-s3-wroom-1_wroom-1u_datasheet_en.pdf"
+  },
+  "notes": "Same module datasheet as esp32-s3-wroom-1-n8.json -- see that profile's note for why this module-level flash figure is real and non-null where the bare-die profile's isn't. This SKU ('-N16R8') carries 16 MB Quad SPI flash plus 8 MB Octal SPI PSRAM per Table 1-1; total_flash_bytes reflects only the Quad SPI flash figure (16 MB), since PSRAM is a distinct external RAM resource, not flash, and this project doesn't currently have a field for it. total_sram_bytes (512 KB on-chip) is unchanged from esp32-s3.json -- same die, confirmed identically in this datasheet's own feature list. dev_kit_aliases is deliberately empty for the same unconfirmed-SKU-mapping reason as esp32-s3-wroom-1-n8.json.",
+  "default_firmware_reserve_bytes": null
+}

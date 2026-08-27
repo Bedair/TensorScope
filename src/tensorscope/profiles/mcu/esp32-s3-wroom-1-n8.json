@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "esp32-s3-wroom-1-n8",
+  "mcu_part": "ESP32-S3-WROOM-1-N8",
+  "vendor": "Espressif Systems",
+  "architecture": "Xtensa LX7 (dual-core)",
+  "total_sram_bytes": 524288,
+  "total_flash_bytes": 8388608,
+  "dev_kit_aliases": [],
+  "source": {
+    "datasheet_title": "ESP32-S3-WROOM-1 & ESP32-S3-WROOM-1U Datasheet",
+    "revision": "Version 1.8",
+    "section": "Table 1-1 ESP32-S3-WROOM-1 Series Comparison; Section 1.1 Features",
+    "page": 3,
+    "url": "https://documentation.espressif.com/esp32-s3-wroom-1_wroom-1u_datasheet_en.pdf"
+  },
+  "notes": "This is a module datasheet, a separate document from the bare-die ESP32-S3 SoC datasheet cited in esp32-s3.json -- unlike the bare die, a specific module SKU has one fixed flash size, so total_flash_bytes is a real, non-null figure here: 8 MB Quad SPI flash, no PSRAM (the '-N8' suffix), per Table 1-1. total_sram_bytes (512 KB) is unchanged from esp32-s3.json since it's the same underlying die -- confirmed identically in this module datasheet's own 'CPU and On-Chip Memory' feature list ('512 KB SRAM'). The 16 KB RTC SRAM is excluded for the same reason as the bare-die profile: a distinct low-power retention domain, not general-purpose arena-eligible RAM. dev_kit_aliases is deliberately empty: the bare-die profile's existing note already establishes that ESP32-S3-DevKitC-1 ships in multiple flash-size SKUs (8 MB via WROOM-1/-1U or 32 MB via WROOM-2) with no confirmed single mapping to this specific N8 SKU -- claiming that alias here without checking DevKitC-1's exact bill of materials would risk the same misrepresentation the bare-die profile's null flash figure was written to avoid.",
+  "default_firmware_reserve_bytes": null
+}

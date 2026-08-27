@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "nrf52832",
+  "mcu_part": "nRF52832",
+  "vendor": "Nordic Semiconductor",
+  "architecture": "Arm Cortex-M4F",
+  "total_sram_bytes": 65536,
+  "total_flash_bytes": 524288,
+  "dev_kit_aliases": ["nRF52-DK"],
+  "source": {
+    "datasheet_title": "nRF52832 Product Specification",
+    "revision": null,
+    "section": "Key features - Memory",
+    "page": null,
+    "url": "https://docs.nordicsemi.com/bundle/nRF52832-PS/resource/nRF52832_PS_v1.8.pdf"
+  },
+  "notes": "This is the QFAA SKU (512 kB flash / 64 kB RAM), the variant nRF52-DK ships. A smaller QFAB SKU also exists at 256 kB flash / 32 kB RAM -- not covered by this profile; a QFAB-specific profile would need its own entry rather than assuming this figure applies. docs.nordicsemi.com blocks automated fetches outright, and every full-PDF mirror tried (Nordic, Mouser, DigiKey) was also blocked; the figures above were confirmed via a DigiKey-hosted page carrying Nordic's own overview text verbatim ('512 kB flash/64 kB RAM' / '256 kB flash/32 kB RAM'), cross-checked against two further independent extractions of the same Product Specification quoting identical figures. source.revision and source.page are left null since the full versioned PDF itself was never read directly -- only its overview content, mirrored -- unlike nrf52840.json where the exact page was confirmed from a fetched PDF.",
+  "default_firmware_reserve_bytes": null
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "stm32f746zg",
+  "mcu_part": "STM32F746ZG",
+  "vendor": "STMicroelectronics",
+  "architecture": "Arm Cortex-M7",
+  "total_sram_bytes": 348160,
+  "total_flash_bytes": 1048576,
+  "dev_kit_aliases": ["NUCLEO-F746ZG"],
+  "source": {
+    "datasheet_title": "STM32F745xx STM32F746xx Datasheet",
+    "revision": "DS10916 Rev 5, July 2025",
+    "section": "Features -> Memories",
+    "page": 1,
+    "url": "https://www.st.com/resource/en/datasheet/stm32f746zg.pdf"
+  },
+  "notes": "total_sram_bytes (340 KB) is the datasheet's own itemized breakdown: 320 KB of SRAM (already inclusive of 64 KB data TCM RAM) + 16 KB of instruction TCM RAM + 4 KB of backup SRAM. total_flash_bytes (1 Mbyte) is the same 'Memories' feature bullet's directly stated flash capacity for the 'ZG' devices. st.com and every distributor mirror tried on the first research pass (Mouser x2, Waveshare, Arrow CDN, AllDataSheet) blocked automated fetches; a second pass located a Wayback Machine capture of the identical st.com PDF (230 pp., read in full) and confirmed the figures directly rather than relying on search-engine corroboration alone.",
+  "default_firmware_reserve_bytes": null
+}

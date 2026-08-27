@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "hx6537-a",
+  "mcu_part": "HX6537-A",
+  "vendor": "Himax Technology",
+  "architecture": "Synopsys ARC EM9D DSP",
+  "total_sram_bytes": 2162688,
+  "total_flash_bytes": null,
+  "dev_kit_aliases": ["Seeed Grove Vision AI Module (V1)"],
+  "source": {
+    "datasheet_title": "HX6537-A WE-I Plus ASIC Data Sheet",
+    "revision": "Preliminary Version 01, February 2020",
+    "section": "1 General Description; 2 Features",
+    "page": 6,
+    "url": "https://cdn.sparkfun.com/assets/6/6/7/e/8/HX6537-A_DS_public_v01_1_.pdf"
+  },
+  "notes": "total_sram_bytes (2112 KB) sums the datasheet's own itemized Features list: 320 kB program ICCM local memory + 320 kB data DCCM/XCCM/YCCM local memory + 1472 kB system memory. The datasheet's own intro paragraph rounds this to 'internal 2 MB' -- the itemized sum (2112 KB, slightly over 2 MiB) is used here instead, same convention as this project applies elsewhere when a headline figure and an itemized breakdown disagree. total_flash_bytes is deliberately null: flash is 'SIP 1MB/2MB Flash (LQFP/QFN packages only)' per the same Features list -- a package-dependent System-in-Package option, not a single chip-level constant, so no single figure would be honest here; pick a specific package/part suffix before shipping one number. dev_kit_aliases: Seeed's Grove Vision AI Module V1 is HX6537-A-based -- do not conflate with V2, which uses a different chip (HX6538). Document is marked 'Preliminary' on its cover; the chip has shipped in production boards for years, but this is noted for honesty rather than silently treated as final. Fetched directly via a SparkFun-hosted mirror, not blocked; 30 pp., read in full.",
+  "default_firmware_reserve_bytes": null
+}

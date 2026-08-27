@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "cc1352p",
+  "mcu_part": "CC1352P",
+  "vendor": "Texas Instruments",
+  "architecture": "Arm Cortex-M4F",
+  "total_sram_bytes": 81920,
+  "total_flash_bytes": 360448,
+  "dev_kit_aliases": ["LAUNCHXL-CC1352P"],
+  "source": {
+    "datasheet_title": "CC1352P SimpleLink High-Performance Multi-Band Wireless MCU Datasheet",
+    "revision": "SWRS192F, July 2018 - revised February 2021",
+    "section": "9.4 Memory",
+    "page": 84,
+    "url": "https://www.ti.com/lit/ds/symlink/cc1352p.pdf"
+  },
+  "notes": "total_sram_bytes (80 KB) is the general-purpose figure: 'the ultra-low leakage system static RAM (SRAM) is split into up to five 16-KB blocks and can be used for both storage of data and execution of code.' Two smaller pools exist and are deliberately excluded from this total: an 8-KB cache usable as general RAM (disabled by default, opt-in via the Customer Configuration Area), and a 4-KB Sensor Controller RAM (autonomous-peripheral-oriented, technically CPU-accessible but not general-purpose in normal use). total_flash_bytes (352 KB) is confirmed directly: 'The up to 352-KB nonvolatile (Flash) memory provides storage for code and data.' Fetched directly from ti.com, no blocking; 107 pp., read in full.",
+  "default_firmware_reserve_bytes": null
+}

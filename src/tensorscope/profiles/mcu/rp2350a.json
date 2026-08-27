@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "rp2350a",
+  "mcu_part": "RP2350A",
+  "vendor": "Raspberry Pi Ltd",
+  "architecture": "Arm Cortex-M33 or Hazard3 RISC-V (dual-core, selectable)",
+  "total_sram_bytes": 532480,
+  "total_flash_bytes": null,
+  "dev_kit_aliases": ["Raspberry Pi Pico 2"],
+  "source": {
+    "datasheet_title": "RP2350 Datasheet",
+    "revision": null,
+    "section": "Chapter 1 Introduction, Table 1 RP2350 device family; Section 1.1 The chip",
+    "page": 14,
+    "url": "https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf"
+  },
+  "notes": "total_flash_bytes is deliberately null: the bare die has no embedded flash at all -- flash is external SPI/QSPI chosen per board, not a chip-level constant like SRAM. Confirmed directly from the datasheet's own device-family table (Table 1), which lists RP2350A's (and RP2350B's) Internal Flash column as 'None' -- the same bare-die pattern as RP2040. Raspberry Pi Pico 2 uses RP2350A specifically, paired with an external 4 MB QSPI flash chip (Winbond W25Q32RV) as a board-level choice, not an RP2350A spec. RP2354A and RP2354B are a structurally different pair of parts in the same family: Table 1 lists their Internal Flash as '2 MB', a flash-in-package option (a co-packaged die, not a board-external choice) -- they are not covered by this profile and would need their own entry if ever added, since 'RP2350' alone doesn't resolve flash presence. total_sram_bytes (520 KB) is identical across every RP2350/RP2354 package per the same table and Section 1.1: 'addressed as a single 520 kB region, but physically partitioned into 10 banks.' Fetched directly from Raspberry Pi's own datasheets domain, no blocking; 1380 pp., relevant sections read in full. Pico 2's specific chip/flash-part choice corroborated via two independent teardown/community sources naming the W25Q32RV part number.",
+  "default_firmware_reserve_bytes": null
+}

@@ -75,3 +75,20 @@ This check answers only whether the planned arena head fits the selected
 arena-head budget. It is not a complete MCU or firmware memory-fit conclusion.
 It does not cover arena tail, scratch or persistent buffers, complete arena total,
 firmware, stack, heap, DMA, RTOS, or application memory.
+
+## Catalog scope decisions
+
+Parts investigated and deliberately excluded from the `--target` catalog,
+recorded here so they aren't silently rediscovered and re-investigated later:
+
+- **Analog Devices MAX78000 / MAX78002** -- excluded entirely, not added with
+  a lower-confidence figure. Both parts pair a normal Cortex-M4 with a
+  dedicated CNN hardware accelerator that has its own separate weight/data
+  SRAM, entirely outside the Cortex-M4's memory map and outside TFLM's
+  interpreter and allocator. A model deployed to the CNN accelerator is
+  converted by ADI's own tooling into weight-loading and instruction-sequence
+  form, not run as a normal TFLM graph against an arena -- so this project's
+  `total_sram_bytes`/`total_flash_bytes` figures would only ever describe a
+  non-accelerated, CPU-only build that ignores the chip's actual intended use.
+  Shipping a profile next to real MCU targets risked implying an equivalence
+  that doesn't exist.

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "rp2040",
+  "mcu_part": "RP2040",
+  "vendor": "Raspberry Pi Ltd",
+  "architecture": "Arm Cortex-M0+ (dual-core)",
+  "total_sram_bytes": 270336,
+  "total_flash_bytes": null,
+  "dev_kit_aliases": ["Raspberry Pi Pico"],
+  "source": {
+    "datasheet_title": "RP2040 Datasheet",
+    "revision": null,
+    "section": "1.3 The Chip",
+    "page": 11,
+    "url": "https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf"
+  },
+  "notes": "total_flash_bytes is deliberately null: the bare die has no embedded flash at all -- flash is external SPI/QSPI chosen per board, not a chip-level constant like SRAM. Confirmed directly from the datasheet's own chip overview: 'Code may be executed directly from external memory through a dedicated SPI, DSPI or QSPI interface', with no on-die flash anywhere in the memory chapter. Raspberry Pi Pico pairs it with a 2 MB external QSPI flash chip as a board-level choice; other RP2040 boards commonly ship with different external flash sizes, so no single figure would be honest here. total_sram_bytes (264 KB) is confirmed from the same page: 'addressed as a single 264 kB region, but physically partitioned into 6 banks to allow simultaneous parallel access from different masters.' Fetched directly from Raspberry Pi's own datasheets domain, no blocking; 642 pp., relevant sections read in full.",
+  "default_firmware_reserve_bytes": null
+}

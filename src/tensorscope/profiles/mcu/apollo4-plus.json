@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "apollo4-plus",
+  "mcu_part": "Apollo4 Plus",
+  "vendor": "Ambiq Micro",
+  "architecture": "Arm Cortex-M4F",
+  "total_sram_bytes": 2883584,
+  "total_flash_bytes": 2097152,
+  "dev_kit_aliases": [],
+  "source": {
+    "datasheet_title": "Apollo4 Plus SoC Datasheet",
+    "revision": "DS-A4P-1p3p0 Rev 1.3.0, April 2024",
+    "section": "4 Memory Subsystem",
+    "page": 69,
+    "url": "https://ambiq.com/wp-content/uploads/2022/03/Apollo4-Plus-SoC-Datasheet.pdf"
+  },
+  "notes": "total_sram_bytes (2.75 MB) sums the datasheet's own itemized SRAM breakdown: 2048 kB Shared SRAM + 384 kB TCM + 384 kB Extended SRAM. total_flash_bytes (2 MB) is reported from the datasheet's '2 MB NVM' figure, but this project's 'flash' field is a structural approximation here worth stating plainly: Apollo4 Plus's non-volatile memory is MRAM (magnetoresistive RAM), not conventional NOR/NAND flash. It fills the same role (code/constant storage) that total_flash_bytes represents for every other profile in this catalog, but is a genuinely different underlying technology -- noted here rather than silently labeled 'flash' without comment. dev_kit_aliases is deliberately empty: no specific Ambiq evaluation board was confirmed with certainty against this exact part in the time available for this pass. Fetched directly from ambiq.com (AES-encrypted PDF, decrypted and read in full, 240 pp.), not blocked.",
+  "default_firmware_reserve_bytes": null
+}

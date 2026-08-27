@@ -4,6 +4,44 @@
 
 Nothing pending yet.
 
+## [0.5.0] - 2026-08-27
+
+`--target` catalog expanded from 4 to 23 real per-vendor MCU/NPU-host
+profiles, each sourced from a primary vendor datasheet or reference manual --
+never a distributor summary page, never guessed.
+
+### Added
+
+- 19 new target profiles: STM32H743ZI, STM32H747XI, ESP32-S3-WROOM-1-N8,
+  ESP32-S3-WROOM-1-N16R8, nRF52832, RP2040, RP2350A, STM32F746ZG,
+  STM32F767ZI, i.MX RT1062, nRF5340, EFR32MG24, EFR32MG26, Apollo4 Plus,
+  Apollo4 Blue Plus, RA8D1, HX6537-A, CXD5602, and CC1352P.
+- STM32U575AI, STM32U575ZI, STM32U585AI, and STM32U585ZI added as aliases
+  on the existing `stm32u585` profile (same SRAM/flash figures, confirmed
+  identically across both families' datasheets) rather than a second,
+  driftable copy of the same fact.
+- A **compute-core reporting policy** for multi-core/multi-domain parts,
+  applied consistently across STM32H747XI, nRF5340, and CXD5602: report the
+  SRAM (and, where relevant, flash) available to the core that would
+  actually run TFLM, and state plainly in `notes` what's excluded and why --
+  a radio/protocol core, an always-on I/O core, or a GNSS baseband domain,
+  none of which run general application code.
+- A consistent "bare die, no embedded flash" pattern applied to RP2040,
+  RP2350A, and i.MX RT1062 (and aligned into the existing ESP32-S3 profile's
+  wording): `total_flash_bytes: null` with a shared explanation template,
+  each backed by the specific datasheet text confirming no on-die flash
+  exists. RP2350A profiles the Raspberry Pi Pico 2's specific silicon variant
+  (no flash-in-package); RP2354A/B are a structurally different pair of
+  parts, not covered by this profile.
+
+### Changed
+
+- Documented in `docs/mcu_memory_budgets.md`: ADI MAX78000 and MAX78002
+  were investigated and deliberately excluded from the catalog -- their CNN
+  accelerator has its own dedicated weight/data SRAM entirely outside
+  TFLM's allocator, so a normal target profile would misrepresent the
+  chip's actual intended use.
+
 ## [0.4.0] - 2026-08-27
 
 Compute-cost (MAC/FLOP) analysis: a new, honestly-scoped static metric,

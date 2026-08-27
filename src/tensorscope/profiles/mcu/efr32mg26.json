@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "efr32mg26",
+  "mcu_part": "EFR32MG26",
+  "vendor": "Silicon Labs",
+  "architecture": "Arm Cortex-M33",
+  "total_sram_bytes": 524288,
+  "total_flash_bytes": 3276800,
+  "dev_kit_aliases": ["xG26-DK2608A"],
+  "source": {
+    "datasheet_title": "EFR32MG26 Wireless SoC Family Data Sheet",
+    "revision": null,
+    "section": "Cover / introduction",
+    "page": 1,
+    "url": "https://www.silabs.com/documents/public/data-sheets/efr32mg26-datasheet.pdf"
+  },
+  "notes": "Figures are the family's headline maximum SKU: 'A Cortex-M33 running up to 78 MHz and up to 3200 kB of flash and 512 kB of RAM'. Smaller-flash SKUs exist in the same family and are not covered by this profile, same convention as efr32mg24.json. dev_kit_aliases: xG26-DK2608A (Silicon Labs' 'EFR32xG26 IoT Dev Kit', board BRD2608A) is the standalone development kit for this family. Fetched via a downloaded copy of Silicon Labs' own PDF, re-extracted directly (154 pp.), not just search-engine paraphrase.",
+  "default_firmware_reserve_bytes": null
+}

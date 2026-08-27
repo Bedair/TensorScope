@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "nrf5340",
+  "mcu_part": "nRF5340",
+  "vendor": "Nordic Semiconductor",
+  "architecture": "Arm Cortex-M33 (dual-core, application + network)",
+  "total_sram_bytes": 524288,
+  "total_flash_bytes": 1048576,
+  "dev_kit_aliases": ["nRF5340-DK"],
+  "source": {
+    "datasheet_title": "nRF5340 Product Specification",
+    "revision": "v1.1, 4406_640, 2021-04-16",
+    "section": "nRF5340 features; Figure 2 Memory map; 3.2.1 RAM",
+    "page": 20,
+    "url": "https://docs.nordicsemi.com/bundle/nRF5340-PS/resource/nRF5340_PS_v1.1.pdf"
+  },
+  "notes": "Compute-core policy (same principle as stm32h747xi.json and cxd5602.json): total_sram_bytes/total_flash_bytes report the application core's figures (512 KB RAM / 1 MB flash), since that is the core a TFLM build runs on in practice. The network core (64 KB RAM / 256 KB flash, not reported here) runs the Bluetooth/802.15.4 radio protocol stack, not general application code -- this project's compute-core policy explicitly excludes radio/IO/GNSS-oriented cores, and the network core is exactly that case. Unlike STM32H747's shared SRAM, this is a genuine architectural split, not a shared pool with one core barred from part of it: the datasheet draws two independent memory-map diagrams (Figure 2), one per core, each with its own Flash and RAM region at a different base address, and Section 3.2.1 states 'Each RAM AHB slave within a core is connected to one or more RAM sections' -- there is no single combined pool to sum or choose a subset of. docs.nordicsemi.com blocks automated fetches; content verified against an Octopart-hosted mirror of the identical document (820 pp., relevant sections read in full, including the app-core/network-core feature summary and the memory-map figure).",
+  "default_firmware_reserve_bytes": null
+}
