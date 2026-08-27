@@ -83,19 +83,49 @@ Two ways to check planned arena head against a RAM budget:
 - `--target <name>`: real vendor MCU parts and dev-kit boards, each backed
   by a cited primary-source datasheet. Resolves case-insensitively by
   either the chip's part number or a known dev-kit board name.
-  `tensorscope list-targets` lists all of them; as of this writing:
+  `tensorscope list-targets` lists all of them; as of this writing, 23:
 
   | Part | Vendor | RAM | Dev-kit / board aliases |
   |---|---|---|---|
-  | STM32U585 | STMicroelectronics | 804,864 bytes | NUCLEO-U575ZI-Q |
-  | nRF52840 | Nordic Semiconductor | 262,144 bytes | nRF52840-DK, Arduino Nano 33 BLE, Arduino Nano 33 BLE Sense, Adafruit Feather nRF52840 Sense |
-  | ESP32-S3 | Espressif Systems | 524,288 bytes | ESP32-S3-DevKitC-1 |
+  | Apollo4 Blue Plus | Ambiq Micro | 2,883,584 bytes | (none confirmed) |
+  | Apollo4 Plus | Ambiq Micro | 2,883,584 bytes | (none confirmed) |
+  | CC1352P | Texas Instruments | 81,920 bytes | LAUNCHXL-CC1352P |
+  | CXD5602 | Sony Semiconductor Solutions | 1,572,864 bytes | Spresense Main Board |
   | CY8C624ABZI-S2D44 | Infineon Technologies | 1,048,576 bytes | CY8CKIT-062S2-AI |
+  | EFR32MG24 | Silicon Labs | 262,144 bytes | xG24-DK2601B |
+  | EFR32MG26 | Silicon Labs | 524,288 bytes | xG26-DK2608A |
+  | ESP32-S3 | Espressif Systems | 524,288 bytes | ESP32-S3-DevKitC-1 |
+  | ESP32-S3-WROOM-1-N8 | Espressif Systems | 524,288 bytes | (none confirmed) |
+  | ESP32-S3-WROOM-1-N16R8 | Espressif Systems | 524,288 bytes | (none confirmed) |
+  | HX6537-A | Himax Technology | 2,162,688 bytes | Seeed Grove Vision AI Module (V1) |
+  | i.MX RT1062 | NXP Semiconductors | 1,048,576 bytes | Teensy 4.0, Teensy 4.1 |
+  | nRF52832 | Nordic Semiconductor | 65,536 bytes | nRF52-DK |
+  | nRF52840 | Nordic Semiconductor | 262,144 bytes | nRF52840-DK, Arduino Nano 33 BLE, Arduino Nano 33 BLE Sense, Adafruit Feather nRF52840 Sense |
+  | nRF5340 | Nordic Semiconductor | 524,288 bytes | nRF5340-DK |
+  | RA8D1 | Renesas Electronics | 1,048,576 bytes | EK-RA8D1 |
+  | RP2040 | Raspberry Pi Ltd | 270,336 bytes | Raspberry Pi Pico |
+  | RP2350A | Raspberry Pi Ltd | 532,480 bytes | Raspberry Pi Pico 2 |
+  | STM32F746ZG | STMicroelectronics | 348,160 bytes | NUCLEO-F746ZG |
+  | STM32F767ZI | STMicroelectronics | 544,768 bytes | NUCLEO-F767ZI |
+  | STM32H743ZI | STMicroelectronics | 1,085,440 bytes | NUCLEO-H743ZI |
+  | STM32H747XI | STMicroelectronics | 1,085,440 bytes (M7-hosted) | Portenta H7, Nicla Vision, OpenMV H7 |
+  | STM32U585 | STMicroelectronics | 804,864 bytes | NUCLEO-U575ZI-Q, STM32U575AI, STM32U575ZI, STM32U585AI, STM32U585ZI |
 
   Each RAM figure is sourced from that vendor's actual datasheet or
   reference manual, not a marketing page — see each profile's `source`
   field (`src/tensorscope/profiles/mcu/*.json`) for the exact citation, and
   `docs/mcu_memory_budgets.md` for how these are resolved and validated.
+
+  A few parts carry a real structural caveat instead of one plain number,
+  always stated in that profile's own `notes` field, never silently
+  simplified:
+  - **Bare-die, no embedded flash** (RP2040, RP2350A, i.MX RT1062, and the
+    existing ESP32-S3 profile): `--target` reports RAM only; flash is
+    external and board-chosen, not a chip constant.
+  - **Multi-core / multi-domain parts** (STM32H747XI, nRF5340, CXD5602): the
+    RAM figure is the amount available to the core that would actually run
+    TFLM, with the excluded core (or radio/IO/GNSS domain) and the reason
+    stated explicitly in `notes` — not silently summed or averaged.
 
 Example (`analyze model.tflite --target stm32u585`) — this is the actual
 default text output, not illustrative:
@@ -105,9 +135,12 @@ Model: model.tflite
 Target: STM32U585 (STMicroelectronics)
 
 Memory
-  Flash (model)      420 B / 2,097,152 B
-  RAM (arena head)   32 B / 804,864 B      FITS
+  Flash (model)      16,704 B / 2,097,152 B
+  RAM (arena head)   5,968 B / 804,864 B      FITS
   Arena tail         unavailable — run `validate` for an oracle-observed figure
+
+Compute
+  MACs (compute)     336,000   Compute cost (MACs) — not a latency or timing estimate.
 
 Run `tensorscope analyze ... --details` for the full tensor-by-tensor breakdown.
 ```
@@ -121,6 +154,17 @@ guessed). `RAM (arena head)` is the same FITS/EXACT FIT/EXCEEDS BUDGET
 verdict as before, just without its full citation sentence — run with
 `--details` for that, or `--json`/`--html` for the complete picture either
 way.
+
+`Compute` reports total multiply-accumulate (MAC) count for every operator
+whose arithmetic volume can be derived from its tensor shapes (CONV_2D,
+DEPTHWISE_CONV_2D, FULLY_CONNECTED, TRANSPOSE_CONV), plus real per-element
+counts for elementwise ops and windowed reductions (pooling), all shown
+per-operator under `--details`. The inline caveat is not decoration: this is
+arithmetic volume, not a latency or timing estimate — real wall-clock timing
+depends on target core, clock frequency, memory wait-states, and kernel
+implementation, none of which are derivable from a `.tflite` file alone.
+Operators with no derivable cost (e.g. a pooling op whose kernel size
+genuinely can't be parsed) are reported as `unavailable`, never guessed.
 
 `--details` restores the full tensor-by-tensor breakdown this command used
 to show by default: tensor tables, packing detail, memory optimization
@@ -172,6 +216,31 @@ path is pure Python with no platform-specific code, and the full test suite
 (`pytest`, oracle tests skip automatically where the oracle can't run) has
 been verified passing on both a native Windows Python environment and WSL.
 `validate` specifically has only been built and run on Linux/WSL.
+
+## Automated PR checks (GitHub Action)
+
+`.github/workflows/tensorscope-check.yml` runs `analyze` automatically on
+every pull request that touches a `.tflite` file, posts the result as a
+single sticky PR comment (updated in place on every push, never
+duplicated), and fails the check using TensorScope's own
+`--fail-on-budget-exceeded` exit code — no separate gating logic.
+
+To use it in your own repo: copy the workflow and the two scripts under
+`.github/scripts/` (`tensorscope_check.py`, `sticky_comment.sh`), then set
+one of these repository variables (Settings → Actions → Variables) to
+configure a budget check — omit all of them to still get RAM/compute
+figures without a pass/fail verdict:
+
+```
+TENSORSCOPE_TARGET             e.g. "STM32U585"
+TENSORSCOPE_MCU_PROFILE        e.g. "cortex-m4-256k"   (mutually exclusive with TARGET)
+TENSORSCOPE_ARENA_HEAD_BUDGET  e.g. "64KiB"            (mutually exclusive with the above two)
+TENSORSCOPE_RESERVE            e.g. "8KiB"             (optional, combinable with any of the above)
+```
+
+It can also be run manually (`workflow_dispatch`) or triggered externally
+(`repository_dispatch`) against a specific model path, with the same four
+values as per-run inputs and an optional `pr_number` to comment on.
 
 ## Confidence model
 
