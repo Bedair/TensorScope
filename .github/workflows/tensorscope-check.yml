@@ -1,0 +1,111 @@
+name: TensorScope memory check
+
+# Static memory/compute-cost check for .tflite models, via tensorscope-cli.
+#
+# Configure a budget check with repository variables (Settings -> Actions ->
+# Variables), consumed by the pull_request trigger:
+#   TENSORSCOPE_TARGET             e.g. "STM32U585"
+#   TENSORSCOPE_MCU_PROFILE        e.g. "cortex-m4-256k" (mutually exclusive with TARGET)
+#   TENSORSCOPE_ARENA_HEAD_BUDGET  e.g. "64KiB"           (mutually exclusive with the above two)
+#   TENSORSCOPE_RESERVE            e.g. "8KiB"            (optional, combinable with any of the above)
+# All four are optional; with none set, the check still runs and reports
+# planned RAM and compute cost, just without a pass/fail budget verdict.
+#
+# workflow_dispatch and repository_dispatch accept the same four as
+# per-run inputs (overriding the repository variables), plus an explicit
+# model_path and an optional pr_number to comment on.
+
+on:
+  pull_request:
+    paths:
+      - "**.tflite"
+  workflow_dispatch:
+    inputs:
+      model_path:
+        description: "Path to a .tflite model in this repo"
+        required: true
+        type: string
+      target:
+        description: "--target value (real MCU/dev-kit part or alias)"
+        required: false
+        type: string
+      mcu_profile:
+        description: "--mcu-profile value (generic Cortex-class preset)"
+        required: false
+        type: string
+      arena_head_budget:
+        description: "--arena-head-budget value, e.g. 64KiB"
+        required: false
+        type: string
+      reserve:
+        description: "--reserve value, subtracted from the effective budget"
+        required: false
+        type: string
+      pr_number:
+        description: "PR number to comment on (optional -- omit to only write the job summary)"
+        required: false
+        type: string
+  repository_dispatch:
+    types: [tensorscope-check]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: tensorscope-check-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Full history: the pull_request path below diffs base...head via
+          # plain `git diff`, which needs both commits actually present --
+          # actions/checkout's default shallow (depth 1) clone only has the
+          # single checked-out commit and fails that diff with exit 128.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tensorscope-cli
+        run: pip install "tensorscope-cli==0.5.0"
+
+      - name: Run tensorscope analyze and render the comment body
+        id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MODEL_PATH_INPUT: ${{ inputs.model_path }}
+          MODEL_PATH_PAYLOAD: ${{ github.event.client_payload.model_path }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          TS_TARGET: ${{ inputs.target || vars.TENSORSCOPE_TARGET }}
+          TS_MCU_PROFILE: ${{ inputs.mcu_profile || vars.TENSORSCOPE_MCU_PROFILE }}
+          TS_ARENA_HEAD_BUDGET: ${{ inputs.arena_head_budget || vars.TENSORSCOPE_ARENA_HEAD_BUDGET }}
+          TS_RESERVE: ${{ inputs.reserve || vars.TENSORSCOPE_RESERVE }}
+          COMMENT_BODY_FILE: ${{ runner.temp }}/tensorscope-comment.md
+        run: python3 .github/scripts/tensorscope_check.py
+
+      - name: Post or update the sticky PR comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          COMMENT_BODY_FILE: ${{ runner.temp }}/tensorscope-comment.md
+        run: bash .github/scripts/sticky_comment.sh
+
+      - name: Write job summary
+        if: always()
+        run: cat "${{ runner.temp }}/tensorscope-comment.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Gate on tensorscope's own budget-exceeded exit code
+        if: always()
+        run: exit ${{ steps.check.outputs.worst_exit_code }}
