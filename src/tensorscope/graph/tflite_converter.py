@@ -233,6 +233,46 @@ def _effective_builtin_code(
     return builtin_code
 
 
+_POOL_2D_OPERATOR_NAMES = frozenset({"MAX_POOL_2D", "AVERAGE_POOL_2D"})
+
+
+def _read_pool_2d_options(
+    schema_operator: Any,
+) -> tuple[int | None, int | None]:
+    """Extract filter height/width from a MAX_POOL_2D/AVERAGE_POOL_2D
+    operator's Pool2DOptions, when present.
+
+    Scoped to exactly these two operators: this project does not parse
+    builtin_options generally, and this narrow, typed read (not a raw
+    byte-offset guess) doesn't change that. Returns (None, None) if the
+    operator's builtin_options aren't actually Pool2DOptions -- filter size
+    is never inferred from input/output tensor shapes, which would silently
+    assume stride equals filter size (see compute_cost.py's
+    _UNAVAILABLE_WINDOWED_REASON for why that guess is unsafe).
+    """
+
+    try:
+        from tensorscope.tflite.schema.schema_generated import (
+            BuiltinOptions,
+            Pool2DOptions,
+        )
+    except ImportError as error:
+        raise GraphModelError(
+            "Unable to import TFLite Pool2DOptions schema"
+        ) from error
+
+    if schema_operator.BuiltinOptionsType() != BuiltinOptions.Pool2DOptions:
+        return None, None
+
+    raw_options = schema_operator.BuiltinOptions()
+    if raw_options is None:
+        return None, None
+
+    pool_options = Pool2DOptions()
+    pool_options.Init(raw_options.Bytes, raw_options.Pos)
+    return int(pool_options.FilterHeight()), int(pool_options.FilterWidth())
+
+
 def _operator_name(
     loaded_model: LoadedModel,
     opcode_index: int,
@@ -311,6 +351,13 @@ def _convert_operator(
         "Intermediates",
     )
 
+    pool_filter_height: int | None = None
+    pool_filter_width: int | None = None
+    if name in _POOL_2D_OPERATOR_NAMES:
+        pool_filter_height, pool_filter_width = _read_pool_2d_options(
+            schema_operator
+        )
+
     return Operator(
         id=operator_id,
         opcode_index=opcode_index,
@@ -321,6 +368,8 @@ def _convert_operator(
         intermediates=intermediates,
         builtin_code=builtin_code,
         custom_code=custom_code,
+        pool_filter_height=pool_filter_height,
+        pool_filter_width=pool_filter_width,
     )
 
 

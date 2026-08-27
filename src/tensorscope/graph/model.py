@@ -126,6 +126,8 @@ class Operator:
     intermediates: tuple[TensorId, ...] = ()
     builtin_code: int | None = None
     custom_code: str = ""
+    pool_filter_height: int | None = None
+    pool_filter_width: int | None = None
 
     def __post_init__(self) -> None:
         if self.id < 0:
@@ -147,6 +149,16 @@ class Operator:
         if self.builtin_code is not None and self.builtin_code < 0:
             raise GraphModelError(
                 f"Builtin operator code must be non-negative: {self.builtin_code}"
+            )
+
+        if self.pool_filter_height is not None and self.pool_filter_height <= 0:
+            raise GraphModelError(
+                f"Pool filter height must be positive: {self.pool_filter_height}"
+            )
+
+        if self.pool_filter_width is not None and self.pool_filter_width <= 0:
+            raise GraphModelError(
+                f"Pool filter width must be positive: {self.pool_filter_width}"
             )
 
 

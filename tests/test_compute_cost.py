@@ -107,19 +107,66 @@ def test_pure_data_movement_ops_report_a_real_zero(model_name: str) -> None:
     assert op.note == "data movement only, no arithmetic"
 
 
-def test_pooling_reports_unavailable_not_a_guessed_count() -> None:
+def test_pooling_reports_a_real_windowed_op_count_from_pool2doptions() -> None:
+    # operator_chain_float.tflite's real Pool2DOptions (confirmed directly
+    # against the raw FlatBuffer, not assumed): both pooling ops use a 2x2
+    # filter with 2x2 stride (non-overlapping windows).
+    #   MAX_POOL_2D:     input (1,4,4,1) -> output (1,2,2,1) = 4 output elements
+    #                     4 * (2*2) = 16
+    #   AVERAGE_POOL_2D:  input (1,2,2,1) -> output (1,1,1,1) = 1 output element
+    #                     1 * (2*2) = 4
     summary = _cost("operator_chain_float.tflite")
     by_name = {op.operator_name: op for op in summary.operators}
-    for name in ("MAX_POOL_2D", "AVERAGE_POOL_2D"):
-        op = by_name[name]
-        assert op.category == "unavailable"
-        assert op.mac_count is None
-        assert op.elementwise_op_count is None
-        assert "kernel size not currently parsed" in op.note
-    assert summary.unavailable_operator_count == 2
-    # The two unavailable pooling ops must not silently contribute 0 --
-    # they're absent from every total, not counted as free.
+
+    max_pool = by_name["MAX_POOL_2D"]
+    assert max_pool.category == "elementwise"
+    assert max_pool.mac_count is None
+    assert max_pool.elementwise_op_count == 16
+    assert "2x2 pooling window" in max_pool.note
+
+    avg_pool = by_name["AVERAGE_POOL_2D"]
+    assert avg_pool.category == "elementwise"
+    assert avg_pool.mac_count is None
+    assert avg_pool.elementwise_op_count == 4
+    assert "2x2 pooling window" in avg_pool.note
+
+    assert summary.unavailable_operator_count == 0
+    # Pooling is real per-element work, never a multiply-accumulate --
+    # must not be counted into the MAC total.
     assert summary.total_mac_count == 33  # CONV_2D(16) + DEPTHWISE_CONV_2D(16) + FULLY_CONNECTED(1)
+    assert summary.total_elementwise_ops >= 16 + 4
+
+
+def test_pooling_falls_back_to_unavailable_when_filter_dims_are_not_parsed() -> None:
+    # Defensive path: if a file's builtin_options somehow aren't actually
+    # Pool2DOptions for a MAX_POOL_2D/AVERAGE_POOL_2D opcode, the converter
+    # leaves pool_filter_height/width None -- must fall back to honestly
+    # unavailable, never guess or crash.
+    from tensorscope.compute_cost import _classify_operator
+    from tensorscope.graph import Operator
+
+    graph = convert_tflite_model(load_tflite_model(CORPUS / "operator_chain_float.tflite"))
+    subgraph = graph.primary_subgraph
+    real_op = next(op for op in subgraph.operators if op.name == "MAX_POOL_2D")
+    stripped = Operator(
+        id=real_op.id,
+        opcode_index=real_op.opcode_index,
+        name=real_op.name,
+        version=real_op.version,
+        inputs=real_op.inputs,
+        outputs=real_op.outputs,
+        intermediates=real_op.intermediates,
+        builtin_code=real_op.builtin_code,
+        custom_code=real_op.custom_code,
+        pool_filter_height=None,
+        pool_filter_width=None,
+    )
+
+    result = _classify_operator(subgraph, stripped)
+
+    assert result.category == "unavailable"
+    assert result.elementwise_op_count is None
+    assert "kernel size not currently parsed" in result.note
 
 
 def test_every_operator_instance_in_the_full_corpus_lands_in_exactly_one_category() -> None:

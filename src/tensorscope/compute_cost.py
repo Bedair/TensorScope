@@ -54,18 +54,23 @@ _ELEMENTWISE = {
     "SOFTMAX", "QUANTIZE", "DEQUANTIZE",
 }
 
-# Windowed reduction ops whose op count depends on kernel size, which lives
-# only in Pool2DOptions (builtin_options) -- not parsed by this project for
-# any operator today. Reporting a count here would mean assuming
-# stride == kernel size from the input/output shape ratio, which is a real
-# guess (overlapping pooling windows exist and would break it). Honestly
-# unavailable rather than guessed; add Pool2DOptions parsing before this
-# can report a real number.
+# Windowed reduction ops. Real per-element work, not a multiply-accumulate
+# (max-pooling is comparisons; average-pooling is additions plus one
+# divide) -- reported under the elementwise category, same as ADD/MUL,
+# never summed into the MAC total. The filter (kernel) dimensions come from
+# Pool2DOptions, read directly by the converter (graph/tflite_converter.py)
+# rather than inferred from the input/output shape ratio -- that inference
+# would silently assume stride == filter size, a real guess that breaks for
+# overlapping pooling windows. If a file's builtin_options are somehow not
+# actually Pool2DOptions for one of these two opcodes, the converter leaves
+# the filter dims None and this falls back to honestly unavailable rather
+# than guessing.
+_WINDOWED_REASON = "windowed reduction across a {h}x{w} pooling window per output element"
 _UNAVAILABLE_WINDOWED_REASON = (
     "windowed reduction -- kernel size not currently parsed "
     "(requires Pool2DOptions, not extracted by this project)"
 )
-_UNAVAILABLE_WINDOWED = {"MAX_POOL_2D", "AVERAGE_POOL_2D"}
+_WINDOWED = {"MAX_POOL_2D", "AVERAGE_POOL_2D"}
 
 
 @dataclass(frozen=True)
@@ -177,8 +182,13 @@ def _classify_operator(subgraph: Subgraph, operator: Operator) -> OperatorComput
         output = subgraph.tensor(operator.outputs[0])
         count = _product(output.shape)
         return OperatorComputeCost(operator.id, name, "elementwise", None, count, _ELEMENTWISE_REASON)
-    if name in _UNAVAILABLE_WINDOWED:
-        return OperatorComputeCost(operator.id, name, "unavailable", None, None, _UNAVAILABLE_WINDOWED_REASON)
+    if name in _WINDOWED:
+        if operator.pool_filter_height is None or operator.pool_filter_width is None:
+            return OperatorComputeCost(operator.id, name, "unavailable", None, None, _UNAVAILABLE_WINDOWED_REASON)
+        output = subgraph.tensor(operator.outputs[0])
+        count = _product(output.shape) * operator.pool_filter_height * operator.pool_filter_width
+        reason = _WINDOWED_REASON.format(h=operator.pool_filter_height, w=operator.pool_filter_width)
+        return OperatorComputeCost(operator.id, name, "elementwise", None, count, reason)
     return OperatorComputeCost(
         operator.id, name, "unavailable", None, None,
         f"compute cost is not modeled for {name}",
