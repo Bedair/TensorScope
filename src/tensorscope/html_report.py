@@ -57,15 +57,24 @@ def _scope_context(
     )
 
 
+#
+# validate_palette.js (dataviz skill), --mode light, adjacent pairs: all
+# checks PASS. Slots 6 and 8 were nudged from their original values --
+# #237b9f -> #127ca3 (chroma only, hue/lightness held) and #8d4b35 ->
+# #82371d (hue held; lightness had to move too since raising chroma alone
+# at the original hue made its CVD separation from slot 7 worse, not
+# better) -- to clear the OKLCH chroma floor and the adjacent-pair CVD/
+# normal-vision separation threshold (issue #39). The other six slots are
+# unchanged.
 _SVG_PALETTE = (
     "#3257d5",
     "#00876c",
     "#9c4f00",
     "#7b4ab5",
     "#b3345c",
-    "#237b9f",
+    "#127ca3",
     "#6b6f00",
-    "#8d4b35",
+    "#82371d",
 )
 
 
