@@ -655,6 +655,32 @@ def test_budget_source_label_agrees_across_text_and_html_for_every_budget_kind(
     assert "on STM32U585, per STMicroelectronics datasheet" in budget_json["verdict"]
 
 
+def test_compute_cost_figures_and_caveat_agree_across_text_json_and_html(
+    tmp_path: Path,
+) -> None:
+    # Same class of regression test as the budget-source-label bug: the
+    # compute-cost caveat and MAC figures must be identical across every
+    # render surface. render_compute_cost_caveat() was built as a single
+    # source of truth from the start specifically to prevent this drifting
+    # the way the budget label drifted twice before one existed for it.
+    short_caveat = "Compute cost (MACs) — not a latency or timing estimate."
+
+    text = _run_package("analyze", str(MICRO_SPEECH_MODEL))
+    detailed = _run_package("analyze", str(MICRO_SPEECH_MODEL), "--details")
+    as_json = _run_package("analyze", str(MICRO_SPEECH_MODEL), "--json")
+    destination = tmp_path / "compute-cost-report.html"
+    as_html = _run_package("analyze", str(MICRO_SPEECH_MODEL), "--html", str(destination))
+    html_body = destination.read_text(encoding="utf-8")
+
+    for output in (text.stdout, detailed.stdout, html_body):
+        assert "336,000" in output
+        assert short_caveat in output
+
+    budget_json = json.loads(as_json.stdout)["compute_cost"]
+    assert budget_json["total_mac_count"] == 336_000
+    assert budget_json["caveat"] == short_caveat
+
+
 def test_target_verdict_cites_correctly_when_resolved_via_a_dev_kit_alias() -> None:
     # The citation names the resolved MCU, not the alias string the user typed.
     completed = _run_package(

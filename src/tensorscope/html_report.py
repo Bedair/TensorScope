@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 
+from tensorscope.compute_cost import ComputeCostSummary, OperatorComputeCost, render_compute_cost_caveat
 from tensorscope.explain import (
     MemoryExplanation,
     ReuseBlocker,
@@ -388,6 +389,7 @@ def render_html_report(
     budget: ArenaHeadBudgetResult | None = None,
     guidance: MemoryRiskAssessment | None = None,
     target_clause: str | None = None,
+    compute_cost: ComputeCostSummary | None = None,
 ) -> str:
     """Render one deterministic, dependency-free HTML analysis report.
 
@@ -434,6 +436,7 @@ def render_html_report(
     verdict_banner = _verdict_banner(budget, target_clause=target_clause) if budget is not None else ""
     budget_section = _budget_section(budget, target_clause=target_clause) if budget is not None else ""
     guidance_section = _guidance_section(guidance) if guidance is not None else ""
+    compute_cost_section = _compute_cost_section(compute_cost) if compute_cost is not None else ""
     views_section = _analysis_views_section(result)
     peak_ids = frozenset(item.tensor_id for item in explanation.live_tensors_at_peak)
     largest_ids = frozenset(item.tensor_id for item in explanation.largest_tensors)
@@ -525,6 +528,7 @@ footer {{ margin-top:24px; color:var(--muted); font-size:12px; }}
 </div>
 {budget_section}
 {guidance_section}
+{compute_cost_section}
 {views_section}
 <section><h2>Report metadata</h2><dl class="metrics">
 <div><dt>Model filename</dt><dd>{_text(model_filename)}</dd></div><div><dt>Model path</dt><dd>{_text(model_path)}</dd></div><div><dt>TFLite schema version</dt><dd>{_text(schema_version if schema_version is not None else 'Unavailable')}</dd></div><div><dt>Generated at</dt><dd>{_text(generated_timestamp)}</dd></div><div><dt>TensorScope version</dt><dd>{_text(tool_version)}</dd></div><div><dt>Analysis scope</dt><dd>Primary subgraph · planned arena head only</dd></div>
@@ -670,6 +674,49 @@ def _guidance_section(guidance: MemoryRiskAssessment) -> str:
         + "".join(rendered)
         + "<p><strong>Recommendations are evidence-based suggestions, not guaranteed byte savings.</strong></p>"
         "<p>Model accuracy, operator support, and graph semantics must be revalidated after any model change.</p>"
+        "</section>"
+    )
+
+
+def _compute_cost_row(item: OperatorComputeCost) -> str:
+    if item.category == "mac":
+        detail = f"{item.mac_count:,} MACs"
+    elif item.category == "elementwise":
+        detail = f"{item.elementwise_op_count:,} elementwise ops ({_text(item.note)})"
+    elif item.category == "zero":
+        detail = f"0 ({_text(item.note)})"
+    else:
+        detail = f"unavailable ({_text(item.note)})"
+    return (
+        "<tr>"
+        f"<td>{item.operator_id}</td>"
+        f"<td>{_text(item.operator_name)}</td>"
+        f"<td>{_text(item.category)}</td>"
+        f"<td>{detail}</td>"
+        "</tr>"
+    )
+
+
+def _compute_cost_section(compute_cost: ComputeCostSummary) -> str:
+    rows = "".join(_compute_cost_row(item) for item in compute_cost.operators)
+    unavailable_note = (
+        f"<p class=\"muted\">{compute_cost.unavailable_operator_count} operator(s) have unavailable compute cost — see the table below.</p>"
+        if compute_cost.unavailable_operator_count
+        else ""
+    )
+    return (
+        '<section id="compute-cost"><h2>Compute cost</h2>'
+        f'<p><strong>{_text(render_compute_cost_caveat())}</strong></p>'
+        '<div class="cards">'
+        f'<div class="card"><span class="label">Total MACs</span><span class="value">{compute_cost.total_mac_count:,}</span></div>'
+        f'<div class="card"><span class="label">Total elementwise ops</span><span class="value">{compute_cost.total_elementwise_ops:,}</span></div>'
+        "</div>"
+        f"{unavailable_note}"
+        "<details><summary>Per-operator compute cost</summary>"
+        '<div class="table-wrap"><table><thead><tr><th>Operator</th><th>Name</th><th>Category</th><th>Detail</th></tr></thead>'
+        f"<tbody>{rows}</tbody></table></div>"
+        f'<p class="muted">{_text(render_compute_cost_caveat(long=True))}</p>'
+        "</details>"
         "</section>"
     )
 

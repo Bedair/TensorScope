@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from tensorscope.compute_cost import ComputeCostSummary, render_compute_cost_caveat
 from tensorscope.explain import MemoryExplanation, TensorExplanation
 from tensorscope.graph import GraphModel
 from tensorscope.memory_budget import ArenaHeadBudgetResult
@@ -14,7 +15,7 @@ Category = Literal[
     "peak_concentration", "long_lived_tensor", "reuse_blocker",
     "alignment_overhead", "graph_input_retention", "graph_output_retention",
     "branch_merge_pressure", "budget_pressure", "oracle_context",
-    "general_summary",
+    "compute_concentration", "general_summary",
 ]
 EvidenceValue = int | float | str | None
 
@@ -162,6 +163,7 @@ def assess_memory_risk(
     explanation: MemoryExplanation,
     *,
     budget: ArenaHeadBudgetResult | None = None,
+    compute_cost: ComputeCostSummary | None = None,
 ) -> MemoryRiskAssessment:
     findings: list[MemoryFinding] = []
     recommendations: list[MemoryRecommendation] = []
@@ -215,6 +217,41 @@ def assess_memory_risk(
                 rationale="These tensors account for most known live bytes at the selected peak.",
                 expected="Narrower tensors or less simultaneous liveness may reduce planned arena head.",
                 caveat="Any shape, scheduling, or fusion change must preserve model semantics, accuracy, and supported operators.",
+            )
+
+    if compute_cost is not None and compute_cost.total_mac_count:
+        mac_operators = sorted(
+            (item for item in compute_cost.operators if item.category == "mac"),
+            key=lambda item: (-(item.mac_count or 0), item.operator_id),
+        )
+        total_macs = compute_cost.total_mac_count
+        cumulative_macs = 0
+        selected_ops: list[int] = []
+        mac_threshold = 0
+        for count, item in enumerate(mac_operators[:3], start=1):
+            cumulative_macs += item.mac_count or 0
+            selected_ops.append(item.operator_id)
+            target = {1: 50, 2: 75, 3: 90}[count]
+            if cumulative_macs * 100 >= target * total_macs:
+                mac_threshold = target
+                break
+        if mac_threshold:
+            share = _percent(cumulative_macs, total_macs)
+            add(
+                finding_id=f"compute-concentration-op{'-'.join(map(str, selected_ops))}",
+                recommendation_id=f"review-compute-op{'-'.join(map(str, selected_ops))}",
+                category="compute_concentration",
+                severity="info",
+                title=f"Compute is concentrated in {len(selected_ops)} operator{'s' if len(selected_ops) != 1 else ''}",
+                explanation_text=f"Operators {', '.join(map(str, selected_ops))} account for {share:.2f}% of total MACs.",
+                evidence=(("total_mac_count", total_macs), ("concentrated_mac_count", cumulative_macs),
+                          ("share_percent", share), ("threshold_percent", mac_threshold)),
+                operators=tuple(selected_ops),
+                impact=cumulative_macs,
+                action="Review the shapes and channel counts of the dominant compute operators.",
+                rationale="These operators account for most of the model's known multiply-accumulate volume.",
+                expected="Smaller kernels, fewer channels, or reduced spatial dimensions may reduce compute cost.",
+                caveat=render_compute_cost_caveat(long=True),
             )
 
     for tensor in sorted(allocations.values(), key=lambda item: item.tensor_id):

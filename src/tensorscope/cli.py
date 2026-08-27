@@ -24,6 +24,7 @@ from tensorscope.automation import (
     sarif_document,
 )
 from tensorscope.comparison import ComparisonInput, ModelComparison, compare_models, render_comparison_text
+from tensorscope.compute_cost import ComputeCostSummary, compute_subgraph_cost, render_compute_cost_caveat
 from tensorscope.comparison_report import render_comparison_html
 from tensorscope.explain import MemoryExplanation, explain_primary_subgraph_memory
 from tensorscope.graph import (
@@ -161,6 +162,7 @@ def _calculate_analysis(
         "analysis": explanation.to_dict(),
         "analysis_views": build_analysis_views(graph, explanation),
         "model_diagnostics": build_model_diagnostics(graph),
+        "compute_cost": compute_subgraph_cost(graph.primary_subgraph).to_dict(),
     }
     return result, explanation, graph
 
@@ -232,6 +234,7 @@ def _render_text(
     budget: ArenaHeadBudgetResult | None = None,
     guidance: MemoryRiskAssessment | None = None,
     target_clause: str | None = None,
+    compute_cost: ComputeCostSummary | None = None,
 ) -> str:
     lines = [f"Model: {result['model_path']}"]
     validation = result.get("validation")
@@ -295,6 +298,8 @@ def _render_text(
         lines.extend(["", _render_budget_text(budget, target_clause=target_clause)])
     if guidance is not None:
         lines.extend(["", render_memory_guidance(guidance, details=details)])
+    if compute_cost is not None:
+        lines.extend(["", _render_compute_cost_text(compute_cost)])
     views = result.get("analysis_views")
     if isinstance(views, dict) and explanation is not None:
         attribution = views["operator_attribution"]
@@ -348,6 +353,30 @@ def _render_budget_text(budget: ArenaHeadBudgetResult, *, target_clause: str | N
     return "\n".join(lines)
 
 
+def _render_compute_cost_text(compute_cost: ComputeCostSummary) -> str:
+    lines = [
+        "Compute cost",
+        f"Total MACs: {compute_cost.total_mac_count:,}   {render_compute_cost_caveat()}",
+        f"Total elementwise ops: {compute_cost.total_elementwise_ops:,}",
+    ]
+    if compute_cost.unavailable_operator_count:
+        lines.append(f"Operators with unavailable compute cost: {compute_cost.unavailable_operator_count}")
+    lines.append("")
+    for item in compute_cost.operators:
+        if item.category == "mac":
+            assert item.mac_count is not None
+            lines.append(f"  Operator {item.operator_id} {item.operator_name}: {item.mac_count:,} MACs")
+        elif item.category == "elementwise":
+            assert item.elementwise_op_count is not None
+            lines.append(f"  Operator {item.operator_id} {item.operator_name}: {item.elementwise_op_count:,} elementwise ops ({item.note})")
+        elif item.category == "zero":
+            lines.append(f"  Operator {item.operator_id} {item.operator_name}: 0 ({item.note})")
+        else:
+            lines.append(f"  Operator {item.operator_id} {item.operator_name}: unavailable ({item.note})")
+    lines.extend(["", render_compute_cost_caveat(long=True)])
+    return "\n".join(lines)
+
+
 _COMPACT_LABEL_WIDTH = 19
 
 
@@ -362,6 +391,7 @@ def _render_compact_analyze_text(
     budget: ArenaHeadBudgetResult | None,
     target_clause: str | None,
     target_total_flash_bytes: int | None,
+    compute_cost: ComputeCostSummary,
 ) -> str:
     """The default ``analyze`` text output: model identity, then only the
     checks genuinely computed today (planned arena head, and -- for a real
@@ -396,6 +426,14 @@ def _render_compact_analyze_text(
         ram_value = f"{head_bytes:,} B"
     lines.append(_compact_row("RAM (arena head)", ram_value))
     lines.append(_compact_row("Arena tail", "unavailable — run `validate` for an oracle-observed figure"))
+
+    if compute_cost.total_mac_count:
+        lines.extend(["", "Compute"])
+        lines.append(_compact_row(
+            "MACs (compute)",
+            f"{compute_cost.total_mac_count:,}   {render_compute_cost_caveat()}",
+        ))
+
     lines.extend(["", "Run `tensorscope analyze ... --details` for the full tensor-by-tensor breakdown."])
     return "\n".join(lines)
 
@@ -582,6 +620,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     target_clause: str | None = None
     target_total_flash_bytes: int | None = None
     guidance: MemoryRiskAssessment | None = None
+    compute_cost: ComputeCostSummary | None = None
     graph: GraphModel | None = None
     comparison: ModelComparison | None = None
     try:
@@ -712,6 +751,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 arguments.model,
                 top_tensors=arguments.top_tensors,
             )
+            compute_cost = compute_subgraph_cost(graph.primary_subgraph)
             planned = result["arena_head"]["bytes"]
             assert isinstance(planned, int)
             if arguments.arena_head_budget is not None:
@@ -741,7 +781,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     result["arena_head_budget"]["verdict"] = render_budget_verdict(
                         budget, target_clause=target_clause
                     )
-            guidance = assess_memory_risk(graph, explanation, budget=budget)
+            guidance = assess_memory_risk(graph, explanation, budget=budget, compute_cost=compute_cost)
             result["memory_guidance"] = guidance.to_dict()
             exit_code = EXIT_SUCCESS
         elif arguments.command == "validate":
@@ -760,6 +800,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 budget=budget,
                 guidance=guidance,
                 target_clause=target_clause,
+                compute_cost=compute_cost,
             )
             report_path = write_html_report(arguments.html, html)
         else:
@@ -809,6 +850,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(render_comparison_text(comparison, details=arguments.details))
     elif arguments.command == "analyze" and not arguments.details:
         assert explanation is not None
+        assert compute_cost is not None
         print(
             _render_compact_analyze_text(
                 result,
@@ -816,6 +858,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 budget=budget,
                 target_clause=target_clause,
                 target_total_flash_bytes=target_total_flash_bytes,
+                compute_cost=compute_cost,
             )
         )
     else:
@@ -828,6 +871,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 budget=budget,
                 guidance=guidance,
                 target_clause=target_clause,
+                compute_cost=compute_cost,
             )
         )
     if arguments.command == "analyze" and budget is not None and arguments.fail_on_budget_exceeded and budget.status == "exceeds":

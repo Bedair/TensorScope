@@ -4,6 +4,55 @@
 
 Nothing pending yet.
 
+## [0.4.0] - 2026-08-27
+
+Compute-cost (MAC/FLOP) analysis: a new, honestly-scoped static metric,
+additive to everything 0.3.0 shipped.
+
+### Added
+
+- New `compute_cost.py`: per-operator arithmetic-volume classification for
+  every operator this project supports, verified against real corpus
+  models and the vendored TFLM kernel source (not assumed):
+  - **MAC-bearing** (CONV_2D, DEPTHWISE_CONV_2D, FULLY_CONNECTED,
+    TRANSPOSE_CONV): a real multiply-accumulate count, derived from
+    weight-tensor shape.
+  - **Zero-compute** (RESHAPE, STRIDED_SLICE, PAD): reported as a genuine
+    0, not omitted -- "data movement only, no arithmetic."
+  - **Elementwise** (ADD, SUB, MUL, RELU, RELU6, LEAKY_RELU, LOGISTIC,
+    SOFTMAX, QUANTIZE, DEQUANTIZE): real per-element work, reported as a
+    separate output-element count -- never summed into the MAC total,
+    since the two aren't commensurate units of cost.
+  - **Unavailable** (MAX_POOL_2D, AVERAGE_POOL_2D): honestly reported as
+    unavailable rather than guessed -- their op count depends on kernel
+    size, which lives only in `Pool2DOptions` (`builtin_options`), which
+    this project does not parse for any operator today.
+- `analyze`'s compact default and `--details` both gain a `Compute`
+  section (MAC total in compact; a full per-operator breakdown in
+  `--details`); a new JSON `compute_cost` key; and a new guidance finding
+  ("Compute is concentrated in N operator(s)..."), gated to never fire
+  when total MACs are 0.
+- Every appearance of a MAC/elementwise figure is paired with an inline
+  caveat -- *"Compute cost (MACs) — not a latency or timing estimate."* —
+  from one shared function (`render_compute_cost_caveat()`), the same
+  single-source-of-truth pattern already used for the budget verdict,
+  adopted here from the start rather than after wording drifted across
+  render surfaces the way the budget label did twice before.
+
+### Not built (investigated and intentionally out of scope)
+
+- Wall-clock latency estimation: confirmed out of statically-answerable
+  scope, and harder than arena tail -- cycle counts depend on target core,
+  clock frequency, memory wait-states, and reference-vs-optimized kernel
+  selection, none of which exist in a `.tflite` file or are portable from
+  a host-architecture oracle run.
+- `Pool2DOptions` parsing for a real pooling op count: legitimate, well-
+  defined follow-up work, deliberately not included here.
+
+Same standard as prior releases: no formula shipped without verification
+against a real corpus model or (for TRANSPOSE_CONV, which has no corpus
+fixture) the real vendored fixture directly.
+
 ## [0.3.0] - 2026-08-27
 
 Stage 1 of the compact-view feature: flash capacity for real `--target`
