@@ -58,6 +58,13 @@ fixture) the real vendored fixture directly.
 Stage 1 of the compact-view feature: flash capacity for real `--target`
 profiles, and a redesigned default `analyze` text output.
 
+Built, merged to `main`, and tested, but never tagged as a release or
+uploaded to PyPI before 0.4.0 shipped on top of it — noted here so anyone
+comparing this changelog against PyPI's published release history
+(`0.2.0`, `0.2.1`, `0.4.0`) understands the gap instead of wondering if
+something's missing or broken. No republish of 0.3.0 is possible or
+needed; its changes are part of 0.4.0.
+
 ### Added
 
 - `total_flash_bytes` for three of the four real per-vendor `--target`
