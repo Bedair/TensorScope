@@ -38,6 +38,7 @@ from tensorscope.html_report import (
     write_html_report,
 )
 from tensorscope.memory_budget import (
+    BUDGET_STATUS_LABELS,
     ArenaHeadBudgetResult,
     evaluate_direct_budget,
     evaluate_profile_budget,
@@ -347,6 +348,58 @@ def _render_budget_text(budget: ArenaHeadBudgetResult, *, target_clause: str | N
     return "\n".join(lines)
 
 
+_COMPACT_LABEL_WIDTH = 19
+
+
+def _compact_row(label: str, value: str) -> str:
+    return f"  {label.ljust(_COMPACT_LABEL_WIDTH)}{value}"
+
+
+def _render_compact_analyze_text(
+    result: dict[str, object],
+    *,
+    explanation: MemoryExplanation,
+    budget: ArenaHeadBudgetResult | None,
+    target_clause: str | None,
+    target_total_flash_bytes: int | None,
+) -> str:
+    """The default ``analyze`` text output: model identity, then only the
+    checks genuinely computed today (planned arena head, and -- for a real
+    --target run only -- flash-vs-capacity). Everything else (tensor
+    tables, packing detail, full guidance, operator pressure) moves behind
+    --details, reusing the same flag that already truncates guidance
+    findings rather than adding a second one.
+    """
+
+    model = result.get("model")
+    filename = model["filename"] if isinstance(model, dict) else result["model_path"]
+    lines = [f"Model: {filename}"]
+    if budget is not None and budget.profile_name is not None:
+        label = "Target" if target_clause is not None else "Profile"
+        lines.append(f"{label}: {budget.profile_name}")
+    lines.extend(["", "Memory"])
+
+    if target_clause is not None:
+        constant_bytes = explanation.summary.constant_tensor_bytes
+        if target_total_flash_bytes is not None:
+            flash_value = f"{constant_bytes:,} B / {target_total_flash_bytes:,} B"
+        else:
+            flash_value = f"{constant_bytes:,} B / unavailable — flash capacity is not a single well-defined figure for this target"
+        lines.append(_compact_row("Flash (model)", flash_value))
+
+    head_bytes = result["arena_head"]["bytes"]
+    assert isinstance(head_bytes, int)
+    if budget is not None:
+        status_label = BUDGET_STATUS_LABELS[budget.status]
+        ram_value = f"{head_bytes:,} B / {budget.effective_budget_bytes:,} B      {status_label}"
+    else:
+        ram_value = f"{head_bytes:,} B"
+    lines.append(_compact_row("RAM (arena head)", ram_value))
+    lines.append(_compact_row("Arena tail", "unavailable — run `validate` for an oracle-observed figure"))
+    lines.extend(["", "Run `tensorscope analyze ... --details` for the full tensor-by-tensor breakdown."])
+    return "\n".join(lines)
+
+
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tensorscope")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -527,6 +580,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     explanation: MemoryExplanation | None = None
     budget: ArenaHeadBudgetResult | None = None
     target_clause: str | None = None
+    target_total_flash_bytes: int | None = None
     guidance: MemoryRiskAssessment | None = None
     graph: GraphModel | None = None
     comparison: ModelComparison | None = None
@@ -670,6 +724,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 resolved_target = resolve_target(arguments.target)
                 budget = evaluate_profile_budget(planned, as_mcu_profile(resolved_target), reserve)
                 target_clause = render_target_verdict_clause(resolved_target)
+                target_total_flash_bytes = resolved_target.total_flash_bytes
             if budget is not None:
                 result["arena_head_budget"] = budget.to_dict()
                 if target_clause is not None:
@@ -742,6 +797,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif arguments.command == "compare":
         assert comparison is not None
         print(render_comparison_text(comparison, details=arguments.details))
+    elif arguments.command == "analyze" and not arguments.details:
+        assert explanation is not None
+        print(
+            _render_compact_analyze_text(
+                result,
+                explanation=explanation,
+                budget=budget,
+                target_clause=target_clause,
+                target_total_flash_bytes=target_total_flash_bytes,
+            )
+        )
     else:
         print(
             _render_text(

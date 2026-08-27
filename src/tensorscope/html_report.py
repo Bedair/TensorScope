@@ -14,6 +14,7 @@ from tensorscope.explain import (
     describe_reuse_blocker,
 )
 from tensorscope.memory_budget import (
+    BUDGET_STATUS_LABELS,
     ArenaHeadBudgetResult,
     render_budget_source_label,
     render_budget_verdict,
@@ -550,10 +551,6 @@ footer {{ margin-top:24px; color:var(--muted); font-size:12px; }}
 """
 
 
-# Mirrors the private status-label map inside memory_budget.render_budget_verdict.
-# Duplicated (not imported) because that map is a module-private implementation
-# detail, not part of memory_budget's public API; keep in sync if it changes.
-_BUDGET_STATUS_LABELS = {"fits": "FITS", "exact_fit": "EXACT FIT", "exceeds": "EXCEEDS BUDGET"}
 _BUDGET_STATUS_ICONS = {"fits": "✓", "exact_fit": "⚠", "exceeds": "✕"}
 
 
@@ -572,7 +569,7 @@ def _verdict_banner(budget: ArenaHeadBudgetResult, *, target_clause: str | None 
     crop) that only sees this element.
     """
 
-    label = _BUDGET_STATUS_LABELS[budget.status]
+    label = BUDGET_STATUS_LABELS[budget.status]
     icon = _BUDGET_STATUS_ICONS[budget.status]
     headline = f"{label} — {budget.planned_arena_head_bytes:,} / {budget.effective_budget_bytes:,} bytes"
     citation = ""

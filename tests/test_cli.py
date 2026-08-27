@@ -29,6 +29,7 @@ MODEL = (
     / "hello_world_float.tflite"
 )
 OPERATOR_CHAIN_MODEL = Path(__file__).parent / "model_corpus" / "models" / "operator_chain_float.tflite"
+HELLO_WORLD_INT8_MODEL = Path(__file__).parent / "model_corpus" / "models" / "hello_world_int8.tflite"
 CONV0_MODEL = Path(__file__).parent / "model_corpus" / "models" / "conv0.tflite"
 MICRO_SPEECH_MODEL = Path(__file__).parent / "model_corpus" / "models" / "micro_speech_quantized.tflite"
 REPOSITORY_ROOT = Path(__file__).parents[1]
@@ -84,8 +85,10 @@ def test_package_module_analyze_executes_successfully() -> None:
 
     assert completed.returncode == EXIT_SUCCESS
     assert completed.stderr == ""
-    assert "Arena head: 128 bytes" in completed.stdout
-    assert "Arena tail is not yet statically estimated." in completed.stdout
+    assert "RAM (arena head)" in completed.stdout
+    assert "128 B" in completed.stdout
+    assert "Arena tail" in completed.stdout
+    assert "unavailable" in completed.stdout
 
 
 def test_new_operator_model_supports_text_json_and_html(tmp_path: Path) -> None:
@@ -94,7 +97,8 @@ def test_new_operator_model_supports_text_json_and_html(tmp_path: Path) -> None:
     # (which does need the oracle) lives in the skip-guarded test below.
     text_result = _run_package("analyze", str(OPERATOR_CHAIN_MODEL))
     assert text_result.returncode == EXIT_SUCCESS
-    assert "Arena head: 128 bytes" in text_result.stdout
+    assert "RAM (arena head)" in text_result.stdout
+    assert "128 B" in text_result.stdout
 
     json_result = _run_package("analyze", str(OPERATOR_CHAIN_MODEL), "--json")
     assert json_result.returncode == EXIT_SUCCESS
@@ -172,7 +176,9 @@ def test_analyze_json_is_stable(capsys: pytest.CaptureFixture[str]) -> None:
 def test_human_output_names_every_scope(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert main(["analyze", str(MODEL)]) == EXIT_SUCCESS
+    # Per-figure confidence/source/validation labeling is a --details
+    # concern -- the compact default doesn't show it.
+    assert main(["analyze", str(MODEL), "--details"]) == EXIT_SUCCESS
 
     output = capsys.readouterr().out
     assert "Arena head: 128 bytes [exact; static_analysis; not_validated]" in output
@@ -185,6 +191,9 @@ def test_human_output_names_every_scope(
 def test_analyze_detailed_text_includes_explanation_and_ascii(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    # Confirms --details still produces the full, unchanged legacy output
+    # (tensor tables, packing, peak execution point, reuse summary) exactly
+    # as it did before the compact default existed.
     assert main(["analyze", str(MODEL), "--details"]) == EXIT_SUCCESS
 
     output = capsys.readouterr().out
@@ -200,10 +209,87 @@ def test_analyze_detailed_text_includes_explanation_and_ascii(
     assert "Complete arena total is not yet statically estimated." in output
 
 
+def test_compact_view_is_the_default_and_omits_the_full_breakdown() -> None:
+    completed = _run_package("analyze", str(MODEL))
+
+    assert completed.returncode == EXIT_SUCCESS
+    assert "Model: hello_world_float.tflite" in completed.stdout
+    assert "Memory" in completed.stdout
+    assert "RAM (arena head)" in completed.stdout
+    assert "128 B" in completed.stdout
+    assert "Arena tail" in completed.stdout
+    assert "unavailable" in completed.stdout
+    assert "Run `tensorscope analyze ... --details`" in completed.stdout
+    # None of the full-breakdown content leaks into the compact default.
+    assert "Largest tensors" not in completed.stdout
+    assert "Peak execution point:" not in completed.stdout
+    assert "Packing table:" not in completed.stdout
+    assert "Memory risk and optimization guidance" not in completed.stdout
+    assert "Operator-level arena-head pressure" not in completed.stdout
+
+
+def test_compact_view_shows_flash_row_for_a_real_target_with_correct_bytes() -> None:
+    completed = _run_package(
+        "analyze", str(HELLO_WORLD_INT8_MODEL), "--target", "stm32u585",
+    )
+
+    assert completed.returncode == EXIT_SUCCESS
+    assert "Model: hello_world_int8.tflite" in completed.stdout
+    assert "Target: STM32U585 (STMicroelectronics)" in completed.stdout
+    assert "Flash (model)" in completed.stdout
+    # 420 bytes is the real sum of constant-tensor bytes in this model, not
+    # a guess -- confirmed independently against the graph in
+    # test_explain.py-style direct computation; regressions here would mean
+    # the constant-bytes wiring or the flash citation drifted.
+    assert "420 B / 2,097,152 B" in completed.stdout
+    assert "RAM (arena head)" in completed.stdout
+    assert "32 B / 804,864 B" in completed.stdout
+    assert "FITS" in completed.stdout
+
+
+def test_compact_view_omits_flash_row_for_a_generic_mcu_profile() -> None:
+    completed = _run_package(
+        "analyze", str(HELLO_WORLD_INT8_MODEL), "--mcu-profile", "cortex-m4-256k",
+    )
+
+    assert completed.returncode == EXIT_SUCCESS
+    assert "Profile: Cortex-M4 class — 256 KiB RAM" in completed.stdout
+    assert "Flash" not in completed.stdout
+    assert "RAM (arena head)" in completed.stdout
+    assert "32 B / 262,144 B" in completed.stdout
+    assert "FITS" in completed.stdout
+
+
+def test_compact_view_omits_flash_row_for_esp32s3_since_flash_is_module_dependent() -> None:
+    # ESP32-S3's total_flash_bytes is honestly null (see target_profiles.py
+    # tests for why) -- confirm the compact view says so instead of
+    # printing a blank or a guessed number.
+    completed = _run_package(
+        "analyze", str(HELLO_WORLD_INT8_MODEL), "--target", "esp32-s3",
+    )
+
+    assert completed.returncode == EXIT_SUCCESS
+    assert "Flash (model)" in completed.stdout
+    assert "420 B / unavailable" in completed.stdout
+    assert "module-dependent" in completed.stdout.lower() or "not a single well-defined" in completed.stdout.lower()
+
+
+def test_compact_view_omits_flash_row_when_no_target_or_profile_given() -> None:
+    completed = _run_package("analyze", str(HELLO_WORLD_INT8_MODEL))
+
+    assert completed.returncode == EXIT_SUCCESS
+    assert "Flash" not in completed.stdout
+    assert "RAM (arena head)" in completed.stdout
+    # No budget check requested at all -- bare bytes, no comparison or verdict.
+    assert "32 B" in completed.stdout
+    assert "FITS" not in completed.stdout
+
+
 def test_analyze_no_ascii_preserves_text_report(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert main(["analyze", str(MODEL), "--no-ascii"]) == EXIT_SUCCESS
+    # The packing table only appears in the --details breakdown.
+    assert main(["analyze", str(MODEL), "--details", "--no-ascii"]) == EXIT_SUCCESS
 
     output = capsys.readouterr().out
     assert "Packing table:" in output
@@ -262,7 +348,10 @@ def test_analyze_html_write_error_has_stable_exit_code(
     [("129", "FITS", EXIT_SUCCESS), ("128", "EXACT FIT", EXIT_SUCCESS), ("127", "EXCEEDS BUDGET", EXIT_SUCCESS)],
 )
 def test_direct_budget_has_qualified_status(budget: str, status: str, returncode: int) -> None:
-    completed = _run_package("analyze", str(MODEL), "--arena-head-budget", budget)
+    # The full budget-check block ("Arena-head budget result: ...", the two
+    # scope-caveat lines) only appears in the --details breakdown; the
+    # compact default shows a plain FITS/EXACT FIT/EXCEEDS BUDGET word.
+    completed = _run_package("analyze", str(MODEL), "--arena-head-budget", budget, "--details")
     assert completed.returncode == returncode
     assert f"Arena-head budget result: {status}" in completed.stdout
     assert "This check covers planned arena head only." in completed.stdout
@@ -335,7 +424,9 @@ def test_help_text_points_list_mcu_profiles_at_mcu_profile() -> None:
 
 
 def test_fail_on_exceeded_uses_dedicated_code_but_exact_fit_succeeds() -> None:
-    exceeded = _run_package("analyze", str(MODEL), "--arena-head-budget", "127", "--fail-on-budget-exceeded")
+    # The full verdict sentence (with its parenthetical caveat) is a
+    # --details concern; the exit code itself is unaffected by render mode.
+    exceeded = _run_package("analyze", str(MODEL), "--arena-head-budget", "127", "--fail-on-budget-exceeded", "--details")
     exact = _run_package("analyze", str(MODEL), "--arena-head-budget", "128", "--fail-on-budget-exceeded")
     assert exceeded.returncode == EXIT_BUDGET_EXCEEDED
     assert "EXCEEDS BUDGET (head only — 128 / 127 bytes; arena tail is not estimated here" in exceeded.stdout
@@ -427,7 +518,7 @@ def test_reserve_and_fail_on_budget_exceeded_both_accept_target() -> None:
     # exit code --mcu-profile and --arena-head-budget already use.
     exceeded = _run_package(
         "analyze", str(CONV0_MODEL), "--target", "nrf52840",
-        "--reserve", "262000", "--fail-on-budget-exceeded",
+        "--reserve", "262000", "--fail-on-budget-exceeded", "--details",
     )
     fits = _run_package(
         "analyze", str(MODEL), "--target", "nrf52840",
@@ -478,7 +569,11 @@ def test_target_verdict_cites_the_resolved_part_and_vendor_in_all_three_modes(
 ) -> None:
     expected_clause = "on STM32U585, per STMicroelectronics datasheet"
 
-    text = _run_package("analyze", str(MODEL), "--target", "STM32U585")
+    # The full citation clause is a --details concern in text mode; the
+    # compact default shows the Target's part/vendor but not the full
+    # verdict sentence. JSON and HTML are untouched by the compact-view
+    # change and still carry it unconditionally.
+    text = _run_package("analyze", str(MODEL), "--target", "STM32U585", "--details")
     as_json = _run_package("analyze", str(MODEL), "--target", "STM32U585", "--json")
     destination = tmp_path / "cited-report.html"
     as_html = _run_package(
@@ -505,7 +600,9 @@ def test_budget_source_label_agrees_across_text_and_html_for_every_budget_kind(
         (("--arena-head-budget", "1MiB"), "Direct arena-head budget"),
     ]
     for budget_flags, expected_label in cases:
-        text = _run_package("analyze", str(MODEL), *budget_flags)
+        # "Budget source" is a --details concern in text mode now; HTML is
+        # untouched by the compact-view change and always shows it.
+        text = _run_package("analyze", str(MODEL), *budget_flags, "--details")
         destination = tmp_path / f"{'-'.join(budget_flags)}.html"
         as_html = _run_package(
             "analyze", str(MODEL), *budget_flags, "--html", str(destination),
@@ -573,7 +670,8 @@ def test_generic_budget_verdicts_carry_no_datasheet_citation(budget_flags: list[
 
 
 def test_analyze_text_renders_ranked_memory_guidance_and_disclaimers() -> None:
-    completed = _run_package("analyze", str(MODEL))
+    # Guidance text is a --details concern in the compact default.
+    completed = _run_package("analyze", str(MODEL), "--details")
     assert completed.returncode == EXIT_SUCCESS
     assert "Memory risk and optimization guidance" in completed.stdout
     assert "Risk summary: HIGH" in completed.stdout
@@ -601,9 +699,14 @@ def test_analyze_json_has_stable_numeric_guidance_with_and_without_budget() -> N
 
 
 def test_details_shows_all_guidance_without_default_limit() -> None:
+    # The compact default no longer shows guidance findings at all (that's
+    # exclusively a --details concern now, see test_recommendations.py for
+    # direct coverage of the underlying 5-finding truncation itself).
+    # At the CLI level, confirm the compact default omits guidance findings
+    # entirely and --details shows every one of them, unrestricted.
     default = _run_package("analyze", str(OPERATOR_CHAIN_MODEL))
     detailed = _run_package("analyze", str(OPERATOR_CHAIN_MODEL), "--details")
-    assert "Showing 5 of" in default.stdout
+    assert "Memory risk and optimization guidance" not in default.stdout
     assert "Showing 5 of" not in detailed.stdout
     assert "Tensor 20 blocks multiple reuse opportunities" in detailed.stdout
 

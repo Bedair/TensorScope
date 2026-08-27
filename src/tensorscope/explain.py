@@ -18,6 +18,7 @@ from tensorscope.graph import (
 class MemorySummary:
     runtime_tensor_count: int
     constant_tensor_count: int
+    constant_tensor_bytes: int
     operator_count: int
     planned_arena_head_bytes: int
     arena_alignment_bytes: int
@@ -392,6 +393,9 @@ def explain_primary_subgraph_memory(
             runtime_tensor_count=len(allocations),
             constant_tensor_count=sum(
                 1 for tensor in subgraph.tensors if tensor.has_constant_data
+            ),
+            constant_tensor_bytes=sum(
+                tensor.constant_data_size for tensor in subgraph.tensors if tensor.has_constant_data
             ),
             operator_count=len(subgraph.operators),
             planned_arena_head_bytes=plan.maximum_memory_size,

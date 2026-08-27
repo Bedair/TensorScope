@@ -74,6 +74,24 @@ def test_invalid_severity_or_confidence_is_rejected(field: str) -> None:
         _finding(**{field: "invalid"})
 
 
+def test_render_memory_guidance_truncates_to_five_findings_unless_details() -> None:
+    # Direct-level coverage of the truncation behavior itself: the CLI's
+    # analyze command no longer has a text mode that reaches
+    # render_memory_guidance(..., details=False) with a non-empty guidance
+    # (the compact default doesn't show guidance findings at all, and
+    # --details always passes details=True) -- so this is now the only
+    # place this behavior is actually exercised.
+    graph, explanation = _analysis("operator_chain_float.tflite")
+    guidance = assess_memory_risk(graph, explanation)
+
+    default_text = render_memory_guidance(guidance, details=False)
+    detailed_text = render_memory_guidance(guidance, details=True)
+
+    assert "Showing 5 of" in default_text
+    assert "Showing 5 of" not in detailed_text
+    assert "Tensor 20 blocks multiple reuse opportunities" in detailed_text
+
+
 def test_peak_concentration_alignment_and_reuse_are_deterministic() -> None:
     graph, explanation = _analysis()
     first = assess_memory_risk(graph, explanation)

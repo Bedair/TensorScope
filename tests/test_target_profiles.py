@@ -41,6 +41,7 @@ def _profile_json(**overrides: object) -> dict[str, object]:
         "vendor": "Example Vendor",
         "architecture": "Example Core",
         "total_sram_bytes": 1024,
+        "total_flash_bytes": 2048,
         "dev_kit_aliases": ["EXAMPLE-DK"],
         "source": _source(),
         "notes": "",
@@ -54,6 +55,7 @@ def _synthetic_profile(
     id: str = "example",
     mcu_part: str = "EXAMPLE-MCU",
     dev_kit_aliases: tuple[str, ...] = ("EXAMPLE-DK",),
+    total_flash_bytes: int | None = 2048,
     file_name: str = "example.json",
 ) -> TargetProfile:
     return TargetProfile(
@@ -62,6 +64,7 @@ def _synthetic_profile(
         vendor="Example Vendor",
         architecture="Example Core",
         total_sram_bytes=1024,
+        total_flash_bytes=total_flash_bytes,
         dev_kit_aliases=dev_kit_aliases,
         source=ProfileSource("Example Datasheet", None, None, None, None),
         notes="",
@@ -93,22 +96,23 @@ def test_bundled_catalog_is_sorted_by_file_name_and_deterministic() -> None:
 
 
 @pytest.mark.parametrize(
-    ("target_id", "mcu_part", "total_sram_bytes", "vendor"),
+    ("target_id", "mcu_part", "total_sram_bytes", "total_flash_bytes", "vendor"),
     [
-        ("stm32u585", "STM32U585", 804864, "STMicroelectronics"),
-        ("nrf52840", "nRF52840", 262144, "Nordic Semiconductor"),
-        ("esp32-s3", "ESP32-S3", 524288, "Espressif Systems"),
-        ("cy8c624abzi-s2d44", "CY8C624ABZI-S2D44", 1048576, "Infineon Technologies"),
+        ("stm32u585", "STM32U585", 804864, 2097152, "STMicroelectronics"),
+        ("nrf52840", "nRF52840", 262144, 1048576, "Nordic Semiconductor"),
+        ("esp32-s3", "ESP32-S3", 524288, None, "Espressif Systems"),
+        ("cy8c624abzi-s2d44", "CY8C624ABZI-S2D44", 1048576, 2097152, "Infineon Technologies"),
     ],
 )
 def test_each_shipped_target_has_the_expected_datasheet_figures(
-    target_id: str, mcu_part: str, total_sram_bytes: int, vendor: str,
+    target_id: str, mcu_part: str, total_sram_bytes: int, total_flash_bytes: int | None, vendor: str,
 ) -> None:
     profiles = {profile.id: profile for profile in load_target_profiles()}
     profile = profiles[target_id]
 
     assert profile.mcu_part == mcu_part
     assert profile.total_sram_bytes == total_sram_bytes
+    assert profile.total_flash_bytes == total_flash_bytes
     assert profile.vendor == vendor
     assert profile.source.datasheet_title
     # Every shipped profile must carry a real, non-empty citation title even
@@ -119,6 +123,18 @@ def test_each_shipped_target_has_the_expected_datasheet_figures(
 def test_every_shipped_target_has_at_least_one_dev_kit_alias() -> None:
     for profile in load_target_profiles():
         assert len(profile.dev_kit_aliases) >= 1, profile.id
+
+
+def test_esp32s3_flash_is_honestly_null_with_an_explanatory_note() -> None:
+    # The bare ESP32-S3 die has no embedded flash (external SPI only, chosen
+    # per module/board); the dev-kit alias itself ships in multiple
+    # flash-size SKUs with no single default. Must not guess a figure.
+    profiles = {profile.id: profile for profile in load_target_profiles()}
+    esp32s3 = profiles["esp32-s3"]
+
+    assert esp32s3.total_flash_bytes is None
+    assert "module-dependent" in esp32s3.notes or "external" in esp32s3.notes.lower()
+    assert "WROOM" in esp32s3.notes
 
 
 # --- Resolution -------------------------------------------------------
@@ -208,7 +224,7 @@ def test_as_mcu_profile_notes_cite_the_source_when_revision_present() -> None:
 
 
 def test_as_mcu_profile_omits_revision_from_citation_when_null() -> None:
-    target = resolve_target("nrf52840")
+    target = resolve_target("stm32u585")
     assert target.source.revision is None
 
     adapted = as_mcu_profile(target)
@@ -266,6 +282,16 @@ def test_parse_profile_accepts_a_well_formed_minimal_profile() -> None:
     assert profile.default_firmware_reserve_bytes is None
 
 
+def test_parse_profile_accepts_a_null_total_flash_bytes() -> None:
+    # Honest "not a single well-defined figure" case, e.g. an
+    # external-flash-only chip -- must not be forced to guess a number.
+    data = _profile_json(total_flash_bytes=None)
+
+    profile = _parse_profile("example.json", json.dumps(data))
+
+    assert profile.total_flash_bytes is None
+
+
 @pytest.mark.parametrize(
     ("mutation", "match"),
     [
@@ -278,6 +304,11 @@ def test_parse_profile_accepts_a_well_formed_minimal_profile() -> None:
         (lambda d: d.update(total_sram_bytes=-1), "total_sram_bytes must be a positive integer"),
         (lambda d: d.update(total_sram_bytes=1.5), "total_sram_bytes must be a positive integer"),
         (lambda d: d.update(total_sram_bytes=True), "total_sram_bytes must be a positive integer"),
+        (lambda d: d.pop("total_flash_bytes"), "missing required field"),
+        (lambda d: d.update(total_flash_bytes=0), "total_flash_bytes must be a positive integer or null"),
+        (lambda d: d.update(total_flash_bytes=-1), "total_flash_bytes must be a positive integer or null"),
+        (lambda d: d.update(total_flash_bytes=1.5), "total_flash_bytes must be a positive integer or null"),
+        (lambda d: d.update(total_flash_bytes=True), "total_flash_bytes must be a positive integer or null"),
         (lambda d: d.update(dev_kit_aliases="EXAMPLE-DK"), "dev_kit_aliases must be a list"),
         (lambda d: d.update(dev_kit_aliases=[""]), "dev_kit_aliases must be a list"),
         (lambda d: d.update(dev_kit_aliases=[1]), "dev_kit_aliases must be a list"),

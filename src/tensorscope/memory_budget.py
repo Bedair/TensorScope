@@ -100,7 +100,7 @@ class ArenaHeadBudgetResult:
         }
 
 
-_BUDGET_STATUS_LABELS: dict[BudgetStatus, str] = {
+BUDGET_STATUS_LABELS: dict[BudgetStatus, str] = {
     "fits": "FITS",
     "exact_fit": "EXACT FIT",
     "exceeds": "EXCEEDS BUDGET",
@@ -127,7 +127,7 @@ def render_budget_verdict(
     stays exactly what every existing caller already expects.
     """
 
-    label = _BUDGET_STATUS_LABELS[budget.status]
+    label = BUDGET_STATUS_LABELS[budget.status]
     clause = f" {target_clause}" if target_clause else ""
     return (
         f"{label} (head only — {budget.planned_arena_head_bytes:,} / "

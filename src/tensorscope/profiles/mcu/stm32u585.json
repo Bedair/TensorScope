@@ -5,6 +5,7 @@
   "vendor": "STMicroelectronics",
   "architecture": "Arm Cortex-M33",
   "total_sram_bytes": 804864,
+  "total_flash_bytes": 2097152,
   "dev_kit_aliases": ["NUCLEO-U575ZI-Q"],
   "source": {
     "datasheet_title": "STM32U585xx Datasheet - production data",
@@ -13,6 +14,6 @@
     "page": null,
     "url": "https://www.st.com/resource/en/datasheet/stm32u585ai.pdf"
   },
-  "notes": "786 KB SRAM with ECC OFF, 722 KB with ECC ON -- figure is the ECC-off maximum, confirmed identically in both STM32U575xx and STM32U585xx production datasheets. NUCLEO-U575ZI-Q carries the sibling STM32U575 part, not STM32U585 itself; both share this SRAM figure identically (they differ in cryptographic hardware acceleration, not memory), so the alias is correct for RAM-budget purposes even though the board's actual part number differs from mcu_part.",
+  "notes": "786 KB SRAM with ECC OFF, 722 KB with ECC ON -- figure is the ECC-off maximum, confirmed identically in both STM32U575xx and STM32U585xx production datasheets. NUCLEO-U575ZI-Q carries the sibling STM32U575 part, not STM32U585 itself; both share this SRAM figure identically (they differ in cryptographic hardware acceleration, not memory), so the alias is correct for RAM-budget purposes even though the board's actual part number differs from mcu_part. total_flash_bytes (2 Mbytes) is confirmed by the Ordering Information table (flash-size code 'I' = 2 Mbytes, matching every STM32U585xI variant) in the DB3734 'Data brief' -- a shorter document than the production datasheet cited in source.url above, since that URL still blocks automated fetches; not yet cross-checked against the full production datasheet the way the SRAM figure was.",
   "default_firmware_reserve_bytes": null
 }

@@ -21,7 +21,7 @@ TARGET_DISCLAIMER = (
 
 _REQUIRED_FIELDS = (
     "schema_version", "id", "mcu_part", "vendor", "architecture",
-    "total_sram_bytes", "dev_kit_aliases", "source", "notes",
+    "total_sram_bytes", "total_flash_bytes", "dev_kit_aliases", "source", "notes",
 )
 _REQUIRED_SOURCE_FIELDS = ("datasheet_title", "revision", "section", "page", "url")
 _NULLABLE_STRING_SOURCE_FIELDS = ("revision", "section", "url")
@@ -60,6 +60,7 @@ class TargetProfile:
     vendor: str
     architecture: str
     total_sram_bytes: int
+    total_flash_bytes: int | None
     dev_kit_aliases: tuple[str, ...]
     source: ProfileSource
     notes: str
@@ -73,6 +74,7 @@ class TargetProfile:
             "vendor": self.vendor,
             "architecture": self.architecture,
             "total_sram_bytes": self.total_sram_bytes,
+            "total_flash_bytes": self.total_flash_bytes,
             "dev_kit_aliases": list(self.dev_kit_aliases),
             "source": self.source.to_dict(),
             "notes": self.notes,
@@ -122,6 +124,18 @@ def _parse_profile(file_name: str, raw_text: str) -> TargetProfile:
     ):
         raise TargetProfileError(f"{file_name}: total_sram_bytes must be a positive integer")
 
+    total_flash_bytes = data["total_flash_bytes"]
+    if total_flash_bytes is not None and (
+        not isinstance(total_flash_bytes, int)
+        or isinstance(total_flash_bytes, bool)
+        or total_flash_bytes <= 0
+    ):
+        raise TargetProfileError(
+            f"{file_name}: total_flash_bytes must be a positive integer or null "
+            "(null when flash capacity is not a single well-defined figure for "
+            "this part, e.g. external-flash-only chips)"
+        )
+
     aliases = data["dev_kit_aliases"]
     if not isinstance(aliases, list) or not all(
         isinstance(item, str) and item for item in aliases
@@ -161,6 +175,7 @@ def _parse_profile(file_name: str, raw_text: str) -> TargetProfile:
         vendor=vendor,
         architecture=architecture,
         total_sram_bytes=total_sram_bytes,
+        total_flash_bytes=total_flash_bytes,
         dev_kit_aliases=tuple(aliases),
         source=ProfileSource(
             datasheet_title=datasheet_title,

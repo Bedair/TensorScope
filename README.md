@@ -97,15 +97,38 @@ Two ways to check planned arena head against a RAM budget:
   field (`src/tensorscope/profiles/mcu/*.json`) for the exact citation, and
   `docs/mcu_memory_budgets.md` for how these are resolved and validated.
 
-Example verdict (`analyze model.tflite --target esp32-s3`):
+Example (`analyze model.tflite --target stm32u585`) — this is the actual
+default text output, not illustrative:
 
 ```
-Arena-head budget result: FITS (head only — 32 / 524,288 bytes on ESP32-S3,
-per Espressif Systems datasheet; arena tail is not estimated here — run
-`tensorscope validate` for an oracle-observed tail)
+Model: model.tflite
+Target: STM32U585 (STMicroelectronics)
+
+Memory
+  Flash (model)      420 B / 2,097,152 B
+  RAM (arena head)   32 B / 804,864 B      FITS
+  Arena tail         unavailable — run `validate` for an oracle-observed figure
+
+Run `tensorscope analyze ... --details` for the full tensor-by-tensor breakdown.
 ```
 
-The `--html` report renders this same verdict as a two-tier banner (a bold
+`Flash (model)` is the sum of the model's constant-tensor bytes (weights and
+other constants, which end up in flash) against the target's flash capacity
+— shown only for a real `--target` (not `--mcu-profile`, which has no flash
+concept), and only when that capacity is a single well-defined figure (see
+the target table above; ESP32-S3's is honestly `unavailable` rather than
+guessed). `RAM (arena head)` is the same FITS/EXACT FIT/EXCEEDS BUDGET
+verdict as before, just without its full citation sentence — run with
+`--details` for that, or `--json`/`--html` for the complete picture either
+way.
+
+`--details` restores the full tensor-by-tensor breakdown this command used
+to show by default: tensor tables, packing detail, memory optimization
+guidance, and operator-level pressure. If you're scripting against
+`analyze`'s text output, add `--details`, or switch to `--json` (its shape
+is unaffected by any of this).
+
+The `--html` report renders the verdict as a two-tier banner (a bold
 headline plus a citation/caveat line), followed by the full tensor-by-tensor
 explanation: an arena-placement chart, per-tensor tables with peak/largest
 highlights, safe-reuse and reuse-blocker detail, memory optimization

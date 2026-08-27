@@ -4,6 +4,54 @@
 
 Nothing pending yet.
 
+## [0.3.0] - 2026-08-27
+
+Stage 1 of the compact-view feature: flash capacity for real `--target`
+profiles, and a redesigned default `analyze` text output.
+
+### Added
+
+- `total_flash_bytes` for three of the four real per-vendor `--target`
+  profiles, sourced from the same primary datasheets already cited for
+  SRAM: STM32U585 (2,097,152 bytes), nRF52840 (1,048,576 bytes), and
+  CY8C624ABZI-S2D44 (2,097,152 bytes). ESP32-S3's is honestly `null`: the
+  bare die has no embedded flash (external SPI only, chosen per
+  module/board), and its dev-kit alias itself ships in multiple
+  flash-size SKUs (8 MB or 32 MB) with no single default — picking one
+  would have meant guessing.
+- `analyze`'s compact default now shows a `Flash (model)` line for a real
+  `--target` run: the model's constant-tensor byte total (weights/constants
+  that end up in flash) against the target's flash capacity, or an honest
+  "unavailable" note when that capacity isn't a single well-defined figure
+  (ESP32-S3 today). Not shown for `--mcu-profile` (generic classes have no
+  flash concept) or when no target/profile was given at all.
+- `render_budget_source_label()`'s status-word counterpart
+  (`BUDGET_STATUS_LABELS`) is now a single shared public mapping in
+  `memory_budget.py`, used by the HTML renderer and this new compact text
+  view alike, instead of letting a third copy of the same 3-entry mapping
+  accumulate.
+
+### Fixed
+
+- nRF52840's SRAM citation's `revision`/`page` were `null` (not visible on
+  the originally-fetched HTML page); now `v1.11`/page 21, sourced from the
+  same sentence in the official PDF edition that supplied the new flash
+  figure.
+
+### Changed
+
+- **Breaking change to `analyze`'s default text output shape.** The
+  default is now a compact summary: model and target/profile identity, a
+  `Memory` section (flash usage when a real `--target` was given, the RAM
+  arena-head budget verdict), and an arena-tail-unavailable note. The full
+  breakdown this used to show unconditionally — tensor tables, packing
+  detail, full memory guidance, operator-level pressure — now requires
+  `--details`, reusing the same flag that already truncated guidance
+  findings rather than adding a second one. `--json` output is entirely
+  unaffected by this change. Anyone scripting against the old default text
+  output needs to add `--details`, or switch to `--json` if they aren't
+  already.
+
 ## [0.2.1] - 2026-08-27
 
 ### Fixed
