@@ -2,8 +2,31 @@
 
 ## [Unreleased]
 
-Everything below has shipped on `main` since the v0.1.0 tag but has not yet
-been cut into a numbered release.
+Nothing pending yet.
+
+## [0.2.1] - 2026-08-27
+
+### Fixed
+
+- `--target` budget checks in text-mode CLI output (e.g.
+  `tensorscope analyze model.tflite --target esp32-s3`, no `--html`)
+  previously showed `Budget source: Generic MCU planning profile` even when
+  a real, cited MCU/dev-kit target was used — the verdict line right below
+  it was correct (it named the target and cited its datasheet), but the
+  source label directly contradicted it. This was the same mislabeling
+  bug fixed for the HTML report in 0.2.0, present independently in the
+  plain-text renderer because the two renderers kept separate copies of
+  the same labeling logic.
+- Fixed at the root: text, HTML, and JSON output now share one budget
+  source labeling function (`render_budget_source_label()` in
+  `memory_budget.py`) instead of each render path keeping its own copy,
+  so this class of drift can't recur between them. A regression test now
+  checks all three output modes agree, for every kind of budget check
+  (`--target`, `--mcu-profile`, `--arena-head-budget`).
+
+## [0.2.0] - 2026-08-26
+
+Everything below shipped on `main` since the v0.1.0 tag.
 
 ### Added
 
